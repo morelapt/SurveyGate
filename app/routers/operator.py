@@ -6,6 +6,9 @@ from app.core.settings import settings
 from app.db.session import get_db_session
 from app.services.operator import create_survey, create_segment
 from app.services.segments_validate import validate_segment_tree
+from app.services.segments_compiler import compile_segment_query
+from app.models import Segment, User
+from app.services.send_invitations import send_invitations
 
 
 class SurveyCreateIn(BaseModel):
@@ -24,6 +27,22 @@ class SegmentCreateIn(BaseModel):
 
 class SegmentCreateOut(BaseModel):
     segment_id: int
+
+
+class SendInvitationsIn(BaseModel):
+    segment_id: int
+    message_template: str = Field(min_length=1)
+    ttl_days: int = Field(default=14, ge=1, le=365)
+    limit: int = Field(default=200, ge=1, le=5000)
+
+
+class SendInvitationsOut(BaseModel):
+    send_id: int
+    targeted: int
+    created: int
+    resent: int
+    skipped: int
+
 
 
 def require_operator_key(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> None:
@@ -58,3 +77,45 @@ async def create_segment_endpoint(payload: SegmentCreateIn, session: AsyncSessio
 
     segment_id = await create_segment(session=session, name=payload.name, filters=payload.filters)
     return SegmentCreateOut(segment_id=segment_id)
+
+@router.get("/segments/{segment_id}/preview")
+async def preview_segment(
+    segment_id: int,
+    limit: int = 20,
+    session: AsyncSession = Depends(get_db_session),
+):
+    segment = await session.get(Segment, segment_id)
+    if not segment:
+        raise HTTPException(status_code=404, detail="Segment not found")
+
+    stmt = compile_segment_query(segment.filters).with_only_columns(User.id).limit(limit)
+    res = await session.execute(stmt)
+    user_ids = [row[0] for row in res.all()]
+    return {"segment_id": segment_id, "user_ids": user_ids}
+
+
+@router.post("/surveys/{survey_id}/send_invitations", response_model=SendInvitationsOut)
+async def send_invitations_endpoint(
+    survey_id: int,
+    payload: SendInvitationsIn,
+    session: AsyncSession = Depends(get_db_session),
+):
+    try:
+        result = await send_invitations(
+            session=session,
+            survey_id=survey_id,
+            segment_id=payload.segment_id,
+            message_template=payload.message_template,
+            ttl_days=payload.ttl_days,
+            limit=payload.limit,
+        )
+    except ValueError as e:
+        msg = str(e)
+        if msg.endswith("not found"):
+            raise HTTPException(status_code=404, detail=msg)
+        if msg in {"Survey is closed"}:
+            raise HTTPException(status_code=400, detail=msg)
+        raise
+
+    return SendInvitationsOut(**result)
+

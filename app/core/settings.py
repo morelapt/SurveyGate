@@ -11,5 +11,7 @@ class Settings(BaseSettings):
 
     OPERATOR_API_KEY: str
 
+    SECRET_KEY: str
+
 
 settings = Settings()
