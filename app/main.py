@@ -8,7 +8,11 @@ from app.core.settings import settings
 from app.db.session import get_db_session
 from app.routers.bot_users import router as bot_users_router
 from app.routers.operator import router as operator_router
+import logging
 
+
+logging.basicConfig(level=logging.INFO)
+logging.getLogger("app").setLevel(logging.INFO)
 
 
 @asynccontextmanager

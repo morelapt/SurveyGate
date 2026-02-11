@@ -1,6 +1,6 @@
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("app.delivery")
 
 
 async def send_message_stub(telegram_id: int, text: str) -> None:
