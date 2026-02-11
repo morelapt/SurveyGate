@@ -2,6 +2,9 @@ import pytest
 from httpx import AsyncClient, ASGITransport
 
 from app.main import app
+import pytest
+
+pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 
 @pytest.mark.asyncio
