@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.settings import settings
 from app.db.session import get_db_session
 from app.routers.bot_users import router as bot_users_router
+from app.routers.operator import router as operator_router
+
 
 
 @asynccontextmanager
@@ -23,6 +25,7 @@ async def lifespan(app_: FastAPI):
 
 app = FastAPI(title="SurveyGate API", lifespan=lifespan)
 app.include_router(bot_users_router)
+app.include_router(operator_router)
 
 
 @app.get("/health")

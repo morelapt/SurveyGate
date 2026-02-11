@@ -9,5 +9,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     DATABASE_URL_SYNC: str
 
+    OPERATOR_API_KEY: str
+
 
 settings = Settings()
