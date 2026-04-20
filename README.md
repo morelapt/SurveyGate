@@ -162,10 +162,11 @@ unit-тесты сервисов,
 idempotency-кейсы рассылок.
 
 🚀 How to run locally
-git clone https://github.com/morelapt/SyrveyGate.git
+git clone https://github.com/morelapt/SurveyGate.git
 cd SurveyGate
 cp .env.example .env
-docker-compose up --build
+docker compose up -d
+poetry install
 poetry run alembic upgrade head
 poetry run uvicorn app.main:app --reload
 

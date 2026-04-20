@@ -1,11 +1,11 @@
 [project]
-name = "syrveygate"
+name = "surveygate"
 version = "0.1.0"
 description = ""
 authors = [
     {name = "maratmagomedov",email = "morelapt@gmail.com"}
 ]
-license = {text = "ЬMIT"}
+license = {text = "MIT"}
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -20,6 +20,8 @@ dependencies = [
     "greenlet (>=3.3.1,<4.0.0)"
 ]
 
+[tool.poetry]
+package-mode = false
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
