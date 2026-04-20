@@ -44,7 +44,7 @@ This project implements the backend layer of a recruiting platform:
 
 ## 🏗 Architecture
 
-```
+```id="9j6n4u"
 FastAPI (async)
      ↓
 PostgreSQL
@@ -109,13 +109,13 @@ Segments are defined as JSON conditions (AND / OR logic).
 
 **Survey**
 
-```
+```id="9n8h2p"
 draft → active → closed
 ```
 
 **Invitation**
 
-```
+```id="k5x7ab"
 sent → opened → completed / expired / revoked
 ```
 
@@ -136,6 +136,66 @@ sent → opened → completed / expired / revoked
 
 ---
 
+## 🧪 Example API Usage
+
+### 1. Create a survey
+
+```bash id="9oqw2v"
+curl -X POST "http://127.0.0.1:8000/operator/surveys" \
+  -H "X-API-Key: dev-operator-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "UX Interview Study",
+    "status": "draft"
+  }'
+```
+
+---
+
+### 2. Preview segment users
+
+```bash id="1bt7kq"
+curl -X POST "http://127.0.0.1:8000/operator/segments/preview" \
+  -H "X-API-Key: dev-operator-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "conditions": {
+      "op": "AND",
+      "rules": [
+        {"field": "city", "op": "eq", "value": "Moscow"}
+      ]
+    }
+  }'
+```
+
+**Example response**
+
+```json id="xv8l2m"
+{
+  "segment_id": 1,
+  "user_ids": [12, 45, 78]
+}
+```
+
+---
+
+### 3. Send invitations
+
+```bash id="a4y3r8"
+curl -X POST "http://127.0.0.1:8000/operator/surveys/1/send" \
+  -H "X-API-Key: dev-operator-key"
+```
+
+---
+
+### Notes
+
+* All operator endpoints require `X-API-Key`
+* Segment conditions use a JSON-based rule system (AND / OR)
+* Invitations are generated with unique tokens
+
+---
+
 ## 🧪 Tests
 
 * async tests (pytest + pytest-asyncio)
@@ -146,7 +206,7 @@ sent → opened → completed / expired / revoked
 
 ## 🚀 Quick Start
 
-```bash
+```bash id="2q7hxs"
 git clone https://github.com/morelapt/SurveyGate.git
 cd SurveyGate
 
@@ -163,7 +223,7 @@ poetry run python -m uvicorn app.main:app --reload
 
 Open:
 
-```
+```id="e2ksj1"
 http://127.0.0.1:8000/docs
 ```
 
@@ -171,7 +231,7 @@ http://127.0.0.1:8000/docs
 
 ## 📂 Project Structure
 
-```
+```id="v7h3op"
 surveygate/
  ├── app/
  │   ├── api/
