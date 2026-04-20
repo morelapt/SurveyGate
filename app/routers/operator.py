@@ -36,12 +36,19 @@ class SendInvitationsIn(BaseModel):
     limit: int = Field(default=200, ge=1, le=5000)
 
 
+class CreatedInviteOut(BaseModel):
+    user_id: int
+    invitation_id: int
+    invite_link: str
+
+
 class SendInvitationsOut(BaseModel):
     send_id: int
     targeted: int
     created: int
     resent: int
     skipped: int
+    created_invites: list[CreatedInviteOut] = []
 
 
 

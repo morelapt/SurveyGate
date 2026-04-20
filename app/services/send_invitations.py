@@ -67,6 +67,7 @@ async def send_invitations(
     created = 0
     resent = 0
     skipped = 0
+    created_invites: list[dict] = []
 
     for user in users:
         # достаём telegram_id (если нет identity — пропустим)
@@ -128,6 +129,14 @@ async def send_invitations(
             .values(sent_at=now, status="sent")
         )
 
+        created_invites.append(
+            {
+                "user_id": user.id,
+                "invitation_id": invitation_id,
+                "invite_link": link,
+            }
+        )
+
         created += 1
 
     await session.commit()
@@ -138,4 +147,5 @@ async def send_invitations(
         "created": created,
         "resent": resent,
         "skipped": skipped,
+        "created_invites": created_invites,
     }
