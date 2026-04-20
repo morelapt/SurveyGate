@@ -1,201 +1,219 @@
-SurveyGate — UX Research Recruiting Platform (MVP)
+# SurveyGate — UX Research Recruiting Platform (Backend MVP)
 
-SurveyGate — это MVP-платформа для рекрутинга респондентов UX-исследований через Telegram: сбор профилей, сегментация аудитории и массовые приглашения без Excel-таблиц и хаотичных чатов.
+SurveyGate is a backend MVP for recruiting UX research participants via Telegram.
 
-🚀 Problem
+The project demonstrates an asynchronous API for user profiling, audience segmentation, and invitation management.
 
-UX-исследователи и продуктовые команды тратят много времени на:
+---
 
-поиск респондентов,
-ручную фильтрацию,
-рассылку приглашений,
-повторный рекрутинг одних и тех же людей.
+## 🚀 Problem
 
-Часто используются:
+UX researchers often spend significant time on:
 
-Google Forms + Excel,
-Telegram-чаты,
-агентства (дорого),
-ручные рассылки.
+* finding participants
+* manually filtering candidates
+* sending invitations
+* reusing the same respondents
 
-Боль: долго, не масштабируется, нет автоматизации сегментации и повторного использования базы.
+Common tools:
 
-🎯 Solution
+* Google Forms + Excel
+* Telegram chats
+* manual outreach
 
-SurveyGate предлагает:
+These workflows do not scale and lack automation.
 
-Telegram-бот для респондентов,
-Web-панель для исследователей,
-конструктор сегментов,
-invite-кампании,
-выдачу промокодов,
-аудит действий и GDPR-совместимое удаление.
+---
 
-🏗 Architecture
+## 🎯 Solution (MVP Scope)
 
-Telegram Bot
+This project implements the backend layer of a recruiting platform:
+
+* user profile storage
+* segmentation based on flexible filters
+* invitation management with tokens
+* survey lifecycle handling
+
+⚠️ This is a **backend MVP**:
+
+* no UI
+* no background workers
+* no full Telegram bot integration
+
+---
+
+## 🏗 Architecture
+
+```
+FastAPI (async)
      ↓
-FastAPI Backend
-     ├── PostgreSQL
-     ├── Redis / Queue Workers
-     └── Admin / Researcher Panel
-
-
-асинхронный backend,
-очереди для массовых рассылок,
-audit-лог,
-rate-limiting.
-
-⚙ Tech Stack
-
-Python 3.12
-FastAPI
-SQLAlchemy (async)
 PostgreSQL
-Alembic
-Redis + RQ / Celery
-Docker / docker-compose
-pytest
-**Nginx (опционально)**
+     ↓
+Alembic (migrations)
+```
 
-📦 MVP Features
+Key aspects:
 
-Registration + consent capture
-Profile storage
-Segmentation filters
-Invite campaigns
-Promo codes
-Survey completion tracking
-/delete_me endpoint
-Audit logs
-Rate limiting
-Roles: admin / researcher
+* asynchronous API (FastAPI + SQLAlchemy 2.0)
+* PostgreSQL as the primary database
+* Alembic for schema migrations
+* operator-oriented REST API
 
-🗂 Domain Model
+---
 
-Основные сущности:
-User / Profile
-Survey
-Segment
-Invitation
-Response
-PromoCode
-AuditLog
-ER-диаграмма и PRD находятся в /docs.
+## ⚙ Tech Stack
 
-🔁 State Flows
+* Python 3.12
+* FastAPI
+* SQLAlchemy 2.0 (async)
+* PostgreSQL
+* Alembic
+* Docker Compose (local database)
+* pytest
 
-Survey: draft → active → closed
-Invitation: queued → sent → failed → responded
-PromoCode: available → reserved → issued → expired
-User: active → deleted
+---
 
-🔌 API Overview
-Telegram Bot
+## 📦 Implemented Features
 
-POST /bot/register
-POST /bot/consent
-POST /bot/profile
-GET /bot/surveys
-POST /bot/respond
-POST /bot/delete_me
+### Core domain
 
-Researcher Panel
+* Users (profiles)
+* Surveys
+* Segments (JSON-based filters)
+* Invitations (token-based)
 
-POST /surveys
-PATCH /surveys/{id}/status
-POST /segments/preview
-POST /surveys/{id}/send
-GET /responses
-GET /audit_logs
+### Functionality
 
-Admin
+* create and store user profiles
+* preview segment users
+* send invitations
+* resend invitations
+* basic status handling
 
-GET /users
-DELETE /users/{id}
-GET /metrics
+---
 
-🛣 Roadmap
+## 🗂 Domain Model
 
-v0 — Prototype
-Bot + анкета
-ручные фильтры
-тестовая рассылка
+Main entities:
 
-MVP (v1)
-сегменты
-массовые инвайты
-промокоды
-audit-лог
-роли
-/delete_me
+* User
+* Survey
+* Segment
+* Invitation
 
-v1.5
-UI сегментов
-scheduling рассылок
-dashboards
+Segments are defined as JSON conditions (AND / OR logic).
 
-v2
-billing
-marketplace
-ML-matching
-public API
+---
 
-⚖️ Trade-offs
+## 🔁 State Flows
 
-Telegram как канал
-✅ быстрый рост базы
-❌ зависимость от платформы
+**Survey**
 
-JSON-сегменты
-✅ скорость MVP
-❌ сложность оптимизации
+```
+draft → active → closed
+```
 
-Soft delete + anonymize
-✅ соответствие регуляциям
-❌ дополнительная логика
+**Invitation**
 
-🧪 Tests
-unit-тесты сервисов,
-интеграционные тесты API,
-фикстуры Postgres,
-idempotency-кейсы рассылок.
+```
+sent → opened → completed / expired / revoked
+```
 
-🚀 How to run locally
+---
+
+## 🔌 API Overview
+
+### Operator API
+
+* `POST /operator/surveys`
+* `POST /operator/segments/preview`
+* `POST /operator/surveys/{id}/send`
+* `POST /operator/invitations/resend`
+
+### Health
+
+* `GET /health`
+
+---
+
+## 🧪 Tests
+
+* async tests (pytest + pytest-asyncio)
+* segmentation logic tests
+* invitation flow tests
+
+---
+
+## 🚀 Quick Start
+
+```bash
 git clone https://github.com/morelapt/SurveyGate.git
 cd SurveyGate
+
 cp .env.example .env
+
 docker compose up -d
+
 poetry install
-poetry run alembic upgrade head
-poetry run uvicorn app.main:app --reload
 
+poetry run python -m alembic upgrade head
 
-После запуска:
-API: http://localhost:8000/docs
-Bot webhook: /bot/webhook
+poetry run python -m uvicorn app.main:app --reload
+```
 
-📂 Repository Structure
+Open:
+
+```
+http://127.0.0.1:8000/docs
+```
+
+---
+
+## 📂 Project Structure
+
+```
 surveygate/
  ├── app/
  │   ├── api/
  │   ├── models/
  │   ├── services/
  │   ├── repositories/
- │   ├── workers/
  │   ├── core/
  │   └── main.py
  ├── migrations/
  ├── tests/
  ├── docs/
- │   ├── prd-lite.md
- │   ├── erd.png
- │   ├── architecture.png
- │   └── flows.md
  ├── docker-compose.yml
  ├── .env.example
  └── README.md
+```
 
-👤 Author
+---
 
-Backend & Product design: Marat Magomedov
+## ⚖️ Design Decisions
+
+**JSON-based segmentation**
+
+* fast to implement for MVP
+* harder to optimize at scale
+
+**Async backend**
+
+* better scalability
+* more complex debugging
+
+---
+
+## 🛣 Future Work
+
+* Telegram bot integration
+* public invite flow (response endpoint)
+* admin interface
+* rate limiting
+* background jobs
+
+---
+
+## 👤 Author
+
+Backend & product design: Marat Magomedov
