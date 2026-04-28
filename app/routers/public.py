@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, field_validator
+from app.schemas.public import PublicResponseIn
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db_session
@@ -9,17 +9,6 @@ from app.services.public_responses import (
 )
 
 router = APIRouter(tags=["public"])
-
-
-class PublicResponseIn(BaseModel):
-    answers: dict
-
-    @field_validator("answers")
-    @classmethod
-    def validate_answers_not_empty(cls, v: dict) -> dict:
-        if not v:
-            raise ValueError("answers must not be empty")
-        return v
 
 
 @router.get("/s/{survey_id}/{token}")
