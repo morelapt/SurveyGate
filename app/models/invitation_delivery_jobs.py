@@ -1,23 +1,24 @@
 import datetime as dt
-from enum import Enum
+from enum import StrEnum
 
 from sqlalchemy import (
     BigInteger,
     DateTime,
-    Enum as SQLEnum,
     ForeignKey,
     Index,
     Integer,
     Text,
     UniqueConstraint,
 )
-
+from sqlalchemy import (
+    Enum as SQLEnum,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 
 
-class InvitationDeliveryStatus(str, Enum):
+class InvitationDeliveryStatus(StrEnum):
     PENDING = "pending"
     QUEUED = "queued"
     PROCESSING = "processing"

@@ -2,13 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db_session
-from app.services.users import register_user, update_user_profile
 from app.schemas.bot_users import (
-    RegisterIn,
-    RegisterOut,
     ProfileIn,
     ProfileOut,
+    RegisterIn,
+    RegisterOut,
 )
+from app.services.users import register_user, update_user_profile
 
 router = APIRouter(prefix="/bot/users", tags=["bot-users"])
 
@@ -34,11 +34,11 @@ async def update_profile(payload: ProfileIn, session: AsyncSession = Depends(get
     except ValueError as e:
         msg = str(e)
         if msg == "User not registered":
-            raise HTTPException(status_code=404, detail=msg)
+            raise HTTPException(status_code=404, detail=msg) from e
         if msg == "User not found":
-            raise HTTPException(status_code=404, detail=msg)
+            raise HTTPException(status_code=404, detail=msg) from e
         if msg.startswith("Unknown"):
-            raise HTTPException(status_code=400, detail=msg)
+            raise HTTPException(status_code=400, detail=msg) from e
         raise
 
     return ProfileOut(ok=True)

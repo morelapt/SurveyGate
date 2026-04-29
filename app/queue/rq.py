@@ -4,7 +4,6 @@ from rq.job import Job
 from app.queue.jobs import rq_process_invitation_delivery_job
 from app.queue.redis_client import get_redis_connection
 
-
 DELIVERY_QUEUE_NAME = "invitation_delivery"
 
 

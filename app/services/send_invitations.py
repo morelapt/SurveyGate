@@ -1,5 +1,5 @@
-import logging
 import datetime as dt
+import logging
 
 from sqlalchemy import insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,13 +11,12 @@ from app.models import (
     SurveySend,
     UserIdentity,
 )
-from app.services.invitations_tokens import generate_token, hash_token
-from app.services.segments_compiler import compile_segment_query
 from app.services.delivery_jobs import (
     create_invitation_delivery_job,
     enqueue_pending_invitation_delivery_job,
 )
-
+from app.services.invitations_tokens import generate_token, hash_token
+from app.services.segments_compiler import compile_segment_query
 
 logger = logging.getLogger("app.send_invitations")
 

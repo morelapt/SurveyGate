@@ -1,5 +1,4 @@
 import pytest
-from sqlalchemy import select
 
 from app.models import User
 from app.services.segments_compiler import compile_segment_query
