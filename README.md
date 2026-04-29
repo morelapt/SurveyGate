@@ -1,146 +1,291 @@
-# SurveyGate — UX Research Recruiting Platform (Backend MVP)
+# SurveyGate — UX Research Recruiting Platform Backend MVP
 
-SurveyGate is a backend MVP for recruiting UX research participants via Telegram.
+SurveyGate is a backend MVP for recruiting UX research participants through targeted survey invitations.
 
-The project demonstrates an asynchronous API for user profiling, audience segmentation, and invitation management.
+The project demonstrates an asynchronous FastAPI backend with:
 
----
+- user profile storage;
+- JSON-based audience segmentation;
+- survey and invitation management;
+- hashed invitation tokens;
+- public invite links;
+- Redis/RQ-based delivery queue;
+- PostgreSQL persistence and Alembic migrations.
 
-## 🚀 Problem
+## Problem
 
-UX researchers often spend significant time on:
+UX researchers often need to:
 
-* finding participants
-* manually filtering candidates
-* sending invitations
-* reusing the same respondents
+- find relevant participants;
+- filter users by profile attributes;
+- send survey or interview invitations;
+- avoid repeatedly contacting the same respondent;
+- track whether an invitation was opened or completed.
 
-Common tools:
+In many teams this is done through a mix of Google Forms, spreadsheets, Telegram chats and manual outreach. That workflow does not scale well and is difficult to audit.
 
-* Google Forms + Excel
-* Telegram chats
-* manual outreach
+## MVP Scope
 
-These workflows do not scale and lack automation.
+This project implements the backend layer of a recruiting platform.
 
----
+Implemented in the current MVP:
 
-## 🎯 Solution (MVP Scope)
+- user registration/profile endpoints for bot-like flows;
+- operator API protected with `X-API-Key`;
+- survey creation;
+- segment creation with JSON filters;
+- segment preview;
+- invitation generation;
+- invitation token hashing;
+- public invite open/submit flow;
+- delivery job creation;
+- Redis/RQ queue integration for invitation delivery;
+- PostgreSQL schema migrations with Alembic;
+- automated tests for core flows.
 
-This project implements the backend layer of a recruiting platform:
+Current limitations:
 
-* user profile storage
-* segmentation based on flexible filters
-* invitation management with tokens
-* survey lifecycle handling
+- no UI/admin panel;
+- no real Telegram Bot API integration yet;
+- message delivery is represented by a stub sender;
+- no production-grade authentication/authorization;
+- no rate limiting;
+- no full observability stack;
+- no production deployment configuration yet.
 
-⚠️ This is a **backend MVP**:
+## Architecture
 
-* no UI
-* no background workers
-* no full Telegram bot integration
-
----
-
-## 🏗 Architecture
-
-```id="9j6n4u"
-FastAPI (async)
-     ↓
-PostgreSQL
-     ↓
-Alembic (migrations)
+```text
+Client / Operator
+        |
+        v
+FastAPI application
+        |
+        +--> PostgreSQL
+        |       - users
+        |       - surveys
+        |       - segments
+        |       - survey sends
+        |       - invitations
+        |       - invitation delivery jobs
+        |       - responses
+        |
+        +--> Redis / RQ
+                - background delivery queue
+                - worker processes delivery jobs
 ```
 
-Key aspects:
+## Tech Stack
 
-* asynchronous API (FastAPI + SQLAlchemy 2.0)
-* PostgreSQL as the primary database
-* Alembic for schema migrations
-* operator-oriented REST API
+- Python 3.12
+- FastAPI
+- SQLAlchemy 2.0 async
+- PostgreSQL
+- Alembic
+- Redis
+- RQ
+- Docker Compose
+- pytest
+- pytest-asyncio
+- ruff
 
----
+## Main Domain Concepts
 
-## ⚙ Tech Stack
+### User
 
-* Python 3.12
-* FastAPI
-* SQLAlchemy 2.0 (async)
-* PostgreSQL
-* Alembic
-* Docker Compose (local database)
-* pytest
+A participant who can be invited to surveys.
 
----
+### Segment
 
-## 📦 Implemented Features
+A reusable JSON-based filter that describes which users should be targeted.
 
-### Core domain
+Example:
 
-* Users (profiles)
-* Surveys
-* Segments (JSON-based filters)
-* Invitations (token-based)
-
-### Functionality
-
-* create and store user profiles
-* preview segment users
-* send invitations
-* resend invitations
-* basic status handling
-
----
-
-## 🗂 Domain Model
-
-Main entities:
-
-* User
-* Survey
-* Segment
-* Invitation
-
-Segments are defined as JSON conditions (AND / OR logic).
-
----
-
-## 🔁 State Flows
-
-**Survey**
-
-```id="9n8h2p"
-draft → active → closed
+```json
+{
+  "op": "AND",
+  "rules": [
+    {"field": "city", "op": "EQ", "value": "Moscow"},
+    {"field": "age", "op": "BETWEEN", "value": [18, 35]}
+  ]
+}
 ```
 
-**Invitation**
+Segments are first validated and then compiled into a SQLAlchemy query.
 
-```id="k5x7ab"
-sent → opened → completed / expired / revoked
+### Survey
+
+A research activity that users can be invited to.
+
+### SurveySend
+
+A specific launch of invitations for a survey and segment.
+
+### Invitation
+
+A business entity representing a user's right to open and submit a survey response through a tokenized public link.
+
+The raw token is shown only when the invite is created. The database stores only a token hash.
+
+### InvitationDeliveryJob
+
+A technical entity representing a delivery attempt for an invitation.
+
+This separation is intentional:
+
+- `Invitation` answers: "Can this user access this survey?"
+- `InvitationDeliveryJob` answers: "Was the message delivered to the user?"
+
+## State Flows
+
+### Survey
+
+```text
+draft -> active -> closed
 ```
 
----
+### Invitation
 
-## 🔌 API Overview
+```text
+queued -> sent -> opened -> completed
+            |
+            +-> revoked
+            +-> expired
+```
 
-### Operator API
+### InvitationDeliveryJob
 
-* `POST /operator/surveys`
-* `POST /operator/segments/preview`
-* `POST /operator/surveys/{id}/send`
-* `POST /operator/invitations/resend`
+```text
+pending -> queued -> processing -> sent
+                                |
+                                +-> failed
+```
+
+## API Overview
 
 ### Health
 
-* `GET /health`
+```http
+GET /health
+GET /health/db
+```
 
----
+### Bot-like User API
 
-## 🧪 Example API Usage
+```http
+POST /bot/users/register
+GET /bot/users/profile
+PATCH /bot/users/profile
+```
+
+### Operator API
+
+All operator endpoints require:
+
+```http
+X-API-Key: <operator-api-key>
+```
+
+Available endpoints:
+
+```http
+GET /operator/ping
+POST /operator/surveys
+POST /operator/segments
+GET /operator/segments/{segment_id}/preview
+POST /operator/surveys/{survey_id}/send_invitations
+```
+
+### Public Invite API
+
+```http
+GET /s/{survey_id}/{token}
+POST /s/{survey_id}/{token}
+```
+
+## Quick Start
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/morelapt/SurveyGate.git
+cd SurveyGate
+git checkout feature/redis-delivery-queue
+```
+
+### 2. Create local environment file
+
+```bash
+cp .env.example .env
+```
+
+Example local values:
+
+```env
+ENV=dev
+
+POSTGRES_DB=surveygate
+POSTGRES_USER=surveygate
+POSTGRES_PASSWORD=surveygate
+DATABASE_HOST=localhost
+DATABASE_PORT=5432
+
+DATABASE_URL=postgresql+asyncpg://surveygate:surveygate@localhost:5432/surveygate
+DATABASE_URL_SYNC=postgresql+psycopg://surveygate:surveygate@localhost:5432/surveygate
+
+REDIS_URL=redis://localhost:6379/0
+
+OPERATOR_API_KEY=dev-operator-key
+SECRET_KEY=dev-secret-key-change-me
+```
+
+### 3. Start infrastructure
+
+```bash
+docker compose up -d
+```
+
+### 4. Install dependencies
+
+```bash
+poetry install
+```
+
+### 5. Run migrations
+
+```bash
+poetry run python -m alembic upgrade head
+```
+
+### 6. Start API
+
+```bash
+poetry run python -m uvicorn app.main:app --reload
+```
+
+Open:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+## Running Tests
+
+```bash
+poetry run python -m pytest
+```
+
+Run linting:
+
+```bash
+poetry run ruff check .
+```
+
+## Example Flow
 
 ### 1. Create a survey
 
-```bash id="9oqw2v"
+```bash
 curl -X POST "http://127.0.0.1:8000/operator/surveys" \
   -H "X-API-Key: dev-operator-key" \
   -H "Content-Type: application/json" \
@@ -150,130 +295,158 @@ curl -X POST "http://127.0.0.1:8000/operator/surveys" \
   }'
 ```
 
----
+### 2. Create a segment
 
-### 2. Preview segment users
-
-```bash id="1bt7kq"
-curl -X POST "http://127.0.0.1:8000/operator/segments/preview" \
+```bash
+curl -X POST "http://127.0.0.1:8000/operator/segments" \
   -H "X-API-Key: dev-operator-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "conditions": {
+    "name": "Moscow users 18-35",
+    "filters": {
       "op": "AND",
       "rules": [
-        {"field": "city", "op": "eq", "value": "Moscow"}
+        {"field": "city", "op": "EQ", "value": "Moscow"},
+        {"field": "age", "op": "BETWEEN", "value": [18, 35]}
       ]
     }
   }'
 ```
 
-**Example response**
+### 3. Preview segment users
 
-```json id="xv8l2m"
-{
-  "segment_id": 1,
-  "user_ids": [12, 45, 78]
-}
-```
-
----
-
-### 3. Send invitations
-
-```bash id="a4y3r8"
-curl -X POST "http://127.0.0.1:8000/operator/surveys/1/send" \
+```bash
+curl -X GET "http://127.0.0.1:8000/operator/segments/1/preview?limit=20" \
   -H "X-API-Key: dev-operator-key"
 ```
 
----
+### 4. Send invitations
 
-### Notes
-
-* All operator endpoints require `X-API-Key`
-* Segment conditions use a JSON-based rule system (AND / OR)
-* Invitations are generated with unique tokens
-
----
-
-## 🧪 Tests
-
-* async tests (pytest + pytest-asyncio)
-* segmentation logic tests
-* invitation flow tests
-
----
-
-## 🚀 Quick Start
-
-```bash id="2q7hxs"
-git clone https://github.com/morelapt/SurveyGate.git
-cd SurveyGate
-
-cp .env.example .env
-
-docker compose up -d
-
-poetry install
-
-poetry run python -m alembic upgrade head
-
-poetry run python -m uvicorn app.main:app --reload
+```bash
+curl -X POST "http://127.0.0.1:8000/operator/surveys/1/send_invitations" \
+  -H "X-API-Key: dev-operator-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "segment_id": 1,
+    "message_template": "Please take part in our research: {link}",
+    "ttl_days": 14,
+    "limit": 100
+  }'
 ```
 
-Open:
+The response includes generated invite links for local demo purposes.
 
-```id="e2ksj1"
-http://127.0.0.1:8000/docs
-```
+In a production system, invite links are bearer secrets and should not be returned freely from a bulk API response.
 
----
+## Project Structure
 
-## 📂 Project Structure
-
-```id="v7h3op"
+```text
 surveygate/
- ├── app/
- │   ├── api/
- │   ├── models/
- │   ├── services/
- │   ├── repositories/
- │   ├── core/
- │   └── main.py
- ├── migrations/
- ├── tests/
- ├── docs/
- ├── docker-compose.yml
- ├── .env.example
- └── README.md
+├── app/
+│   ├── core/
+│   ├── db/
+│   ├── models/
+│   ├── queue/
+│   ├── routers/
+│   ├── schemas/
+│   ├── scripts/
+│   ├── services/
+│   └── main.py
+├── docs/
+├── migrations/
+├── tests/
+├── docker-compose.yml
+├── pyproject.toml
+└── README.md
 ```
 
----
+## Key Design Decisions
 
-## ⚖️ Design Decisions
+### JSON-based segmentation
 
-**JSON-based segmentation**
+Segments are stored as JSON trees.
 
-* fast to implement for MVP
-* harder to optimize at scale
+Why this is useful for an MVP:
 
-**Async backend**
+- fast to implement;
+- flexible enough for different filters;
+- easy to validate before execution;
+- can be compiled into SQLAlchemy queries.
 
-* better scalability
-* more complex debugging
+Trade-offs:
 
----
+- harder to optimize than fully normalized rule tables;
+- requires careful validation;
+- more complex analytics on segment structure.
 
-## 🛣 Future Work
+### Hashed invitation tokens
 
-* Telegram bot integration
-* public invite flow (response endpoint)
-* admin interface
-* rate limiting
-* background jobs
+Raw invitation tokens are not stored in the database.
 
----
+Instead:
 
-## 👤 Author
+1. a random token is generated;
+2. the token is shown in the public invite link;
+3. only a hash of the token is stored;
+4. incoming public requests hash the provided token and compare it with the stored hash.
 
-Backend & product design: Marat Magomedov
+This reduces the damage of a database leak.
+
+### Invitation vs DeliveryJob
+
+The project separates business state from delivery mechanics.
+
+`Invitation` is the business object.
+
+`InvitationDeliveryJob` is the technical delivery task.
+
+This allows the system to evolve toward retries, backoff, failed jobs and worker recovery without changing the core invitation model.
+
+### Redis/RQ queue
+
+Redis/RQ is used to move message delivery outside the request/response cycle.
+
+The current implementation is intentionally MVP-level:
+
+- delivery jobs are stored in PostgreSQL;
+- jobs are enqueued into Redis/RQ;
+- actual Telegram sending is still represented by a stub.
+
+For production, PostgreSQL should remain the source of truth and Redis should be treated as a delivery transport.
+
+## Production Readiness
+
+SurveyGate is intentionally a backend MVP, not a production-ready commercial product.
+
+Before a real launch, the most important improvements would be:
+
+- production-grade authentication and authorization;
+- protection for bot-facing endpoints;
+- audit log for operator actions;
+- rate limiting;
+- real Telegram Bot API integration;
+- retry/backoff/dead-letter logic for failed delivery jobs;
+- outbox or sweeper process for queue reliability;
+- idempotency keys for bulk sends;
+- atomic handling of public invite submission;
+- validation of survey answers against a survey schema;
+- Dockerfile and separate API/worker containers;
+- HTTPS and reverse proxy configuration;
+- readiness/liveness checks;
+- worker heartbeat;
+- metrics and alerts for queue health;
+- careful handling of personal data;
+- user deletion and retention policy;
+- CI pipeline for linting, tests and migration checks.
+
+More details are described in `docs/05_production_readiness.md`.
+
+## Interview Positioning
+
+This project is best presented as:
+
+> A backend MVP for targeted UX research recruitment. It demonstrates async FastAPI development, SQLAlchemy 2.0, PostgreSQL schema design, JSON-based segmentation, secure invitation tokens, public invite flow and Redis/RQ-based delivery queue. The project is not production-ready yet, but the main production gaps are documented and understood.
+
+## Author
+
+Marat Magomedov
