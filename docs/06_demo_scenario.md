@@ -13,6 +13,7 @@ register user
 -> create delivery job
 -> open public invite
 -> submit response
+-> try to submit the same token again
 ```
 
 ## Prerequisites
@@ -144,18 +145,20 @@ Expected result:
 ```json
 {
   "segment_id": 1,
-  "users": [
-    {
-      "user_id": 1,
-      "city": "Moscow",
-      "age": 25,
-      "has_children": false
-    }
-  ]
+  "user_ids": [1]
 }
 ```
 
-The exact response shape may differ depending on the current response schema, but the key point is that the registered user should match the segment.
+If the local database is not empty, IDs may differ and the response may contain more than one matching user:
+
+```json
+{
+  "segment_id": 2,
+  "user_ids": [1, 2]
+}
+```
+
+The key point is that users matching the JSON segment filter are returned.
 
 ## 6. Send invitations
 
@@ -212,9 +215,19 @@ Expected result:
 ```json
 {
   "survey_id": 1,
-  "status": "opened"
+  "invitation_id": 1,
+  "status": "queued"
 }
 ```
+
+In this MVP, the public link can be opened directly from the API response for demo purposes.
+
+The `queued` status means that the invitation has been created 
+and a delivery job has been queued, but the worker has not yet marked the invitation 
+as successfully delivered.
+
+In a production flow, a user would normally receive the link only after the delivery worker 
+sends the message through Telegram.
 
 ## 8. Submit response
 
@@ -234,16 +247,38 @@ Expected result:
 ```json
 {
   "ok": true,
-  "response_id": 1,
-  "invitation_id": 1
+  "response_id": 1
 }
 ```
 
 After successful submission:
 
 - response is stored in PostgreSQL;
-- invitation is marked as completed;
+- invitation is marked as completed/used;
 - the same token cannot be submitted again.
+
+## 9. Try to submit the same token again
+
+```bash
+curl -X POST "http://127.0.0.1:8000/s/1/<token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "answers": {
+      "q1": "Second attempt",
+      "q2": 1
+    }
+  }'
+```
+
+Expected result:
+
+```json
+{
+  "detail": "Invitation already used"
+}
+```
+
+This confirms that the public invite token is single-use.
 
 ## What This Demo Shows
 
@@ -257,6 +292,7 @@ This scenario demonstrates:
 - one-time invitation token flow;
 - token hashing;
 - public invite open/submit flow;
+- single-use public invite token protection;
 - separation between `Invitation` and `InvitationDeliveryJob`;
 - Redis/RQ-ready delivery architecture.
 
@@ -267,6 +303,10 @@ During an interview, this demo can be explained as:
 > I start with a user who registers through a bot-like API. 
 > Then I create a survey and a reusable JSON segment. 
 > The segment is validated and compiled into a SQLAlchemy query. 
-> When I send invitations, the system creates tokenized invite links, stores only token hashes, revokes previous active invitations if needed and creates delivery jobs. 
+> When I send invitations, the system creates tokenized invite links, 
+> stores only token hashes, revokes previous active invitations if needed 
+> and creates delivery jobs. 
 > The public endpoint then allows the user to open the invite and submit a response. 
-> Message delivery is currently represented by a stub and Redis/RQ queue infrastructure, while the production roadmap describes how I would add real Telegram delivery, retries, idempotency and observability.
+> Message delivery is currently represented by a stub and Redis/RQ queue infrastructure, 
+> while the production roadmap describes how I would add real Telegram delivery, retries, 
+> idempotency and observability.
