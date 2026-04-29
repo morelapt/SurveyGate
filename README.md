@@ -338,6 +338,15 @@ The response includes generated invite links for local demo purposes.
 
 In a production system, invite links are bearer secrets and should not be returned freely from a bulk API response.
 
+
+## Demo Scenario
+
+A step-by-step local demo flow is available in:
+
+```text
+docs/06_demo_scenario.md
+```
+
 ## Project Structure
 
 ```text
@@ -445,7 +454,12 @@ More details are described in `docs/05_production_readiness.md`.
 
 This project is best presented as:
 
-> A backend MVP for targeted UX research recruitment. It demonstrates async FastAPI development, SQLAlchemy 2.0, PostgreSQL schema design, JSON-based segmentation, secure invitation tokens, public invite flow and Redis/RQ-based delivery queue. The project is not production-ready yet, but the main production gaps are documented and understood.
+> A backend MVP for targeted UX research recruitment. 
+> It demonstrates async FastAPI development, SQLAlchemy 2.0, 
+> PostgreSQL schema design, JSON-based segmentation, secure invitation tokens, 
+> public invite flow and Redis/RQ-based delivery queue. 
+> The project is not production-ready yet, but the main production gaps 
+> are documented and understood.
 
 ## Author
 
