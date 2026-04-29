@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from sqlalchemy import and_, or_, select
-from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.sql import Select
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.models import Device, Service, User, user_devices, user_services
 
