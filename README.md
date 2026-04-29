@@ -461,6 +461,10 @@ This project is best presented as:
 > The project is not production-ready yet, but the main production gaps 
 > are documented and understood.
 
+## Interview Notes
+
+A personal interview preparation guide is available in `docs/07_interview_notes.md`.
+
 ## Author
 
 Marat Magomedov
