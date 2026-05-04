@@ -50,7 +50,13 @@ def validate_segment_tree(node: Any) -> None:
 
     # минимальные проверки value по типам
     if field == "age" and op == "BETWEEN":
-        if not (isinstance(value, list) and len(value) == 2 and all(isinstance(x, int) for x in value)):
+        is_valid_age_range = (
+                isinstance(value, list)
+                and len(value) == 2
+                and all(isinstance(x, int) for x in value)
+        )
+
+        if not is_valid_age_range:
             raise ValueError("age BETWEEN value must be [int, int]")
 
     if op in {"IN", "ANY"}:

@@ -58,14 +58,22 @@ async def update_user_profile(
 
     # codes -> ids
     if device_codes:
-        device_ids = (await session.scalars(select(Device.id).where(Device.code.in_(device_codes)))).all()
+        device_ids = (
+            await session.scalars(
+                select(Device.id).where(Device.code.in_(device_codes))
+            )
+        ).all()
         if len(device_ids) != len(set(device_codes)):
             raise ValueError("Unknown device code in devices[]")
     else:
         device_ids = []
 
     if service_codes:
-        service_ids = (await session.scalars(select(Service.id).where(Service.code.in_(service_codes)))).all()
+        service_ids = (
+            await session.scalars(
+                select(Service.id).where(Service.code.in_(service_codes))
+            )
+        ).all()
         if len(service_ids) != len(set(service_codes)):
             raise ValueError("Unknown service code in services[]")
     else:

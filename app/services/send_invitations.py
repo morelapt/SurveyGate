@@ -1,13 +1,24 @@
 import datetime as dt
+import logging
 
 from sqlalchemy import insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Invitation, Segment, Survey, SurveySend, User, UserIdentity
-from app.services.delivery import send_message_stub
+from app.models import (
+    Invitation,
+    Segment,
+    Survey,
+    SurveySend,
+    UserIdentity,
+)
+from app.services.delivery_jobs import (
+    create_invitation_delivery_job,
+    enqueue_pending_invitation_delivery_job,
+)
 from app.services.invitations_tokens import generate_token, hash_token
 from app.services.segments_compiler import compile_segment_query
 
+logger = logging.getLogger("app.send_invitations")
 
 class SendSummary(dict):
     # просто удобный тип-ярлык (не обязателен)
@@ -68,6 +79,7 @@ async def send_invitations(
     resent = 0
     skipped = 0
     created_invites: list[dict] = []
+    created_delivery_job_ids: list[int] = []
 
     for user in users:
         # достаём telegram_id (если нет identity — пропустим)
@@ -120,14 +132,14 @@ async def send_invitations(
         link = f"/s/{survey_id}/{token}"
         text = message_template.replace("{link}", link)
 
-        await send_message_stub(telegram_id=telegram_id, text=text)
-
-        # отметить как sent
-        await session.execute(
-            update(Invitation)
-            .where(Invitation.id == invitation_id)
-            .values(sent_at=now, status="sent")
+        delivery_job_id = await create_invitation_delivery_job(
+            session=session,
+            invitation_id=invitation_id,
+            telegram_id=telegram_id,
+            message_text=text,
+            created_at=now,
         )
+        created_delivery_job_ids.append(delivery_job_id)
 
         created_invites.append(
             {
@@ -140,6 +152,18 @@ async def send_invitations(
         created += 1
 
     await session.commit()
+
+    for delivery_job_id in created_delivery_job_ids:
+        try:
+            await enqueue_pending_invitation_delivery_job(
+                session=session,
+                job_id=delivery_job_id,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to enqueue delivery job job_id=%s",
+                delivery_job_id,
+            )
 
     return {
         "send_id": send_id,
