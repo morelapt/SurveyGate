@@ -8,6 +8,7 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str
     DATABASE_URL_SYNC: str
+    REDIS_URL: str
 
     OPERATOR_API_KEY: str
 

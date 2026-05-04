@@ -1,7 +1,7 @@
 from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Survey, Segment
+from app.models import Segment, Survey
 
 
 async def create_survey(session: AsyncSession, title: str, status: str = "draft") -> int:
