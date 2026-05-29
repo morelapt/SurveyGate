@@ -54,7 +54,7 @@ async def send_invitations(
     now = dt.datetime.now(dt.UTC)
     expires_at = now + dt.timedelta(days=ttl_days)
 
-    # фиксируем сам запуск как сущность (красиво для портфолио)
+    # фиксируем сам запуск как сущность
     send_stmt = (
         insert(SurveySend)
         .values(
