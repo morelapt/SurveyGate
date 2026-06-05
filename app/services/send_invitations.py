@@ -131,6 +131,8 @@ async def send_invitations(
 
         link = f"/s/{survey_id}/{token}"
         text = message_template.replace("{link}", link)
+        if "{link}" not in message_template:
+            raise ValueError("message_template must contain {link}")
 
         delivery_job_id = await create_invitation_delivery_job(
             session=session,

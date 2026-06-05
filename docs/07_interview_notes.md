@@ -1,78 +1,86 @@
-# Interview Notes
+# SurveyGate — Interview Notes
 
-This document is a personal interview preparation guide for explaining SurveyGate.
+Документ помогает кратко и уверенно объяснить SurveyGate на собеседовании.
 
-SurveyGate should be presented as a backend MVP, not as a production-ready commercial product.
+SurveyGate стоит презентовать как backend-MVP, а не как production-ready коммерческий продукт.
 
-## 1. Short Project Pitch
+---
 
-SurveyGate is a backend MVP for targeted UX research recruitment.
+## 1. Короткий pitch
 
-It allows an operator to create surveys, define user segments with JSON filters, generate tokenized survey invitations, queue delivery jobs and collect responses through public invite links.
+SurveyGate — это backend-MVP сервиса для рекрутинга UX-респондентов и рассылки опросов по сегментам.
 
-The project demonstrates:
+Проект позволяет:
 
-- FastAPI;
-- async SQLAlchemy 2.0;
-- PostgreSQL;
-- Alembic migrations;
-- JSON-based segmentation;
-- secure invitation token hashing;
-- public tokenized links;
-- Redis/RQ-based delivery queue;
-- tests and linting quality gate.
+- регистрировать пользователей через bot-like API;
+- хранить профили респондентов;
+- создавать surveys;
+- создавать JSON-сегменты;
+- выбирать пользователей по сегменту;
+- генерировать одноразовые invitation links;
+- хранить только hash токена;
+- создавать delivery jobs;
+- отправлять jobs в Redis/RQ queue;
+- принимать ответы через public invite link.
 
-## 2. 60-Second Version
+Главная идея проекта: показать не CRUD, а цельный backend-flow от сегментации пользователя до отправки ответа.
 
-SurveyGate is a backend MVP for recruiting UX research participants.
+---
 
-The problem is that researchers often manually filter users, send links and track responses through spreadsheets, forms and chats. I built an API that stores user profiles, allows an operator to create surveys and JSON-based segments, generates one-time invitation links and accepts survey responses through public tokenized URLs.
+## 2. Версия на 60 секунд
 
-One important design choice is that raw invitation tokens are not stored in the database. The system stores only a hash of the token, so a database leak would not immediately expose valid invite links.
+SurveyGate — это backend-MVP для автоматизации рекрутинга UX-респондентов.
 
-Another important decision is separating `Invitation` from `InvitationDeliveryJob`. `Invitation` is the business entity that gives a user access to a survey. `InvitationDeliveryJob` is the technical delivery task that can later be retried, failed or processed by a worker.
+Проблема в том, что исследователи часто вручную фильтруют пользователей, рассылают ссылки и отслеживают ответы через таблицы, формы и чаты. Я сделал API, где можно хранить профили пользователей, создавать опросы, описывать сегменты через JSON-фильтры, генерировать одноразовые invite links и принимать ответы через публичные tokenized URLs.
 
-Right now this is an MVP: message delivery is represented by a stub and Redis/RQ infrastructure. I also documented what would be required before production: real Telegram integration, retries, idempotency, rate limiting, observability, proper auth and personal data handling.
+Важное архитектурное решение — raw invitation token не хранится в базе. В БД сохраняется только hash токена, поэтому при утечке базы нельзя сразу получить валидные ссылки на опросы.
 
-## 3. 3-Minute Version
+Второе важное решение — разделение `Invitation` и `InvitationDeliveryJob`. `Invitation` — это бизнес-сущность, которая даёт пользователю доступ к survey. `InvitationDeliveryJob` — техническая задача доставки, которую можно обрабатывать worker-ом, retry-ить и логировать отдельно.
 
-SurveyGate is a backend MVP for automating UX research participant recruitment.
+Сейчас это MVP: реальная Telegram-доставка заменена stub-логикой, но уже есть Redis/RQ-инфраструктура, public token flow, миграции, тесты и roadmap до production-ready состояния.
 
-The core flow is:
+---
+
+## 3. Основной demo-flow
 
 ```text
-user registers
--> user profile is updated
--> operator creates survey
--> operator creates segment
--> system previews matching users
--> operator sends invitations
--> system creates tokenized invite links
--> delivery jobs are queued
--> user opens public invite
--> user submits response
+register user
+-> update profile
+-> create survey
+-> create segment
+-> preview segment
+-> send invitations
+-> create delivery job
+-> open public invite
+-> submit response
+-> repeated submit is rejected
 ```
 
-The project is built with FastAPI, async SQLAlchemy 2.0, PostgreSQL, Alembic, Redis/RQ, pytest and ruff.
+Что важно подчеркнуть:
 
-The most interesting part is segmentation. Segments are stored as JSON trees. For example, an operator can define a segment like "city is Moscow AND age is between 18 and 35". Before execution, this JSON is validated. Then it is compiled into a SQLAlchemy query. This gives flexibility for an MVP without building a full visual query builder or a normalized rules engine.
+- segment хранится как JSON;
+- JSON валидируется;
+- segment компилируется в SQLAlchemy query;
+- invitation получает одноразовый token;
+- в БД хранится только `token_hash`;
+- delivery вынесена в `InvitationDeliveryJob`;
+- Redis/RQ используется для асинхронной доставки;
+- public submit помечает invitation как completed;
+- повторный submit по тому же token блокируется.
 
-Another important part is invitation security. When an invitation is created, the system generates a random token and returns a public link. But the raw token is not stored in the database. Instead, the application stores a token hash. When the user opens the public link, the token is hashed again and matched against the database.
+---
 
-For delivery, I separated the business concept of an invitation from the technical concept of a delivery job. This lets the system evolve toward retries, backoff, failed jobs and worker recovery without changing the core invitation model.
-
-I do not present this as production-ready. It is a backend MVP. Before real production usage, I would add proper operator authentication, bot endpoint protection, audit logs, rate limiting, real Telegram delivery, retry/backoff, outbox or sweeper logic, observability, privacy controls and stronger tests for failure scenarios.
-
-## 4. Architecture Overview
+## 4. Архитектура
 
 ```text
-Client / Operator
+Operator / Bot / Public user
         |
         v
 FastAPI application
         |
         +--> PostgreSQL
         |       - users
+        |       - user identities
         |       - surveys
         |       - segments
         |       - survey sends
@@ -81,369 +89,368 @@ FastAPI application
         |       - responses
         |
         +--> Redis / RQ
-                - background delivery queue
+                - delivery queue
                 - worker processes delivery jobs
 ```
 
-The API layer is implemented with routers.
+Структурно:
 
-Business logic is placed in services.
+- routers отвечают за API endpoints;
+- services содержат бизнес-логику;
+- SQLAlchemy models описывают таблицы;
+- Alembic управляет миграциями;
+- Redis/RQ используется для фоновой обработки delivery jobs.
 
-Database models are represented with SQLAlchemy ORM.
+---
 
-Migrations are managed by Alembic.
-
-## 5. Main Domain Entities
+## 5. Основные сущности
 
 ### User
 
-A participant who can be invited to surveys.
+Респондент, которого можно пригласить на survey.
+
+### UserIdentity
+
+Внешняя идентичность пользователя, сейчас — Telegram ID.
 
 ### Segment
 
-A reusable filter that defines which users should be targeted.
-
-Segments are stored as JSON.
+Переиспользуемый JSON-фильтр для выбора пользователей.
 
 ### Survey
 
-A research activity that users can be invited to.
+Опрос или исследование.
 
 ### SurveySend
 
-A specific launch of a survey to a selected segment.
+Конкретный запуск рассылки survey по segment.
 
 ### Invitation
 
-A business entity that gives a user access to a survey through a tokenized public link.
+Бизнес-приглашение пользователя пройти survey.
 
 ### InvitationDeliveryJob
 
-A technical entity representing an attempt to deliver an invitation message.
+Техническая задача доставки invitation message.
 
 ### Response
 
-A submitted answer payload for a survey invitation.
+Ответ пользователя на survey.
 
-## 6. Why JSON-Based Segmentation?
+---
 
-I chose JSON-based segmentation because it is a pragmatic MVP solution.
+## 6. Почему JSON-сегменты?
 
-Benefits:
+Я выбрал JSON-based segmentation как прагматичное MVP-решение.
 
-- flexible structure;
-- fast to implement;
-- easy to send through API;
-- supports nested AND/OR logic;
-- easy to validate before execution;
-- can be compiled into SQLAlchemy queries.
+Плюсы:
 
-Trade-offs:
+- гибко;
+- быстро реализовать;
+- удобно передавать через API;
+- можно поддержать вложенные `AND` / `OR`;
+- можно валидировать перед выполнением;
+- можно компилировать в SQLAlchemy query.
 
-- harder to optimize than normalized rule tables;
-- requires strict validation;
-- harder to analyze with SQL directly;
-- can become complex if the segment language grows too much.
+Минусы:
 
-Alternative designs:
+- сложнее анализировать напрямую через SQL;
+- нужна строгая валидация;
+- при росте DSL может стать сложнее поддерживать;
+- нормализованные rule tables были бы строже, но тяжелее для MVP.
 
-- normalized segment rules table;
-- custom query builder;
-- SQL views/materialized views;
-- search/indexing engine;
-- external analytics/CDP tool.
-
-For this project, JSON is a good MVP compromise because the main goal is to demonstrate backend logic and flexible targeting.
-
-## 7. How Segment Processing Works
-
-The flow is:
+Как это работает:
 
 ```text
 operator sends JSON filters
--> validate_segment_tree checks structure and allowed fields/operators
--> compile_segment_query converts JSON into SQLAlchemy query
--> query is executed against users and related tables
+-> validate_segment_tree checks structure
+-> compile_segment_query builds SQLAlchemy query
+-> query returns matching users
 ```
 
-The validator checks:
+Важный момент: система не исполняет raw SQL из JSON. Она принимает только разрешённые поля и операторы, а затем строит SQLAlchemy expressions.
 
-- allowed fields;
-- allowed operators per field;
-- correct group operators;
-- basic value shape;
-- nested rule structure.
+---
 
-The compiler turns the JSON tree into SQLAlchemy expressions.
+## 7. Почему token_hash вместо raw token?
 
-This separates validation from query generation, which makes the code easier to reason about and test.
+Invitation link работает как bearer-secret: у кого есть ссылка, тот может открыть public invite flow.
 
-## 8. Why Hash Invitation Tokens?
+Поэтому raw token нельзя хранить в базе.
 
-Invitation links work like bearer tokens: whoever has the link can access the public invite flow.
-
-Storing raw tokens in the database would be risky. If the database leaked, valid invite links would leak too.
-
-So the system:
+Flow:
 
 ```text
-generates random raw token
--> returns raw token only in invite link
--> stores token hash in database
--> hashes incoming token
--> compares hash with stored value
+generate raw token
+-> return raw token only in invite link
+-> store token_hash in database
+-> hash incoming token
+-> compare hash with stored token_hash
 ```
 
-This is similar in spirit to storing password hashes instead of raw passwords, although the exact threat model is different.
+Это снижает риск при утечке базы: из `token_hash` нельзя напрямую восстановить валидную ссылку.
 
-## 9. Why Separate Invitation and DeliveryJob?
+---
 
-Because they answer different questions.
+## 8. Почему Invitation и DeliveryJob разделены?
 
-`Invitation` answers:
+Потому что они отвечают на разные вопросы.
+
+`Invitation` отвечает:
 
 ```text
-Does this user have access to this survey?
-Is the invite active, revoked, expired or completed?
+Есть ли у пользователя доступ к этому survey?
+Активен ли invite?
+Он completed, revoked или expired?
 ```
 
-`InvitationDeliveryJob` answers:
+`InvitationDeliveryJob` отвечает:
 
 ```text
-Was a message delivery task created?
-Was it queued?
-Was it processed?
-Did it fail?
-Should it be retried?
+Создана ли задача доставки?
+Поставлена ли она в очередь?
+Обработал ли её worker?
+Была ли ошибка?
+Нужно ли retry?
 ```
 
-This separation is useful because delivery is unreliable by nature. Telegram, Redis, the network or a worker can fail.
+Это разделение полезно, потому что доставка ненадёжна по природе: Telegram, Redis, сеть или worker могут падать. Бизнес-состояние invitation не должно жёстко зависеть от одной попытки доставки.
 
-The business state should not be tightly coupled to one delivery attempt.
+---
 
-## 10. Why Redis/RQ?
+## 9. Почему Redis/RQ?
 
-Redis/RQ is used to move message delivery outside the request/response cycle.
+Redis/RQ нужен, чтобы вынести доставку сообщений из HTTP request/response цикла.
 
-Without a queue:
+Без очереди:
 
 ```text
 operator sends invitations
--> API tries to send all messages synchronously
--> request can become slow
--> external delivery failures directly affect API response
+-> API синхронно отправляет все сообщения
+-> request становится долгим и хрупким
 ```
 
-With a queue:
+С очередью:
 
 ```text
 operator sends invitations
--> API creates invitations and delivery jobs
--> jobs are queued
--> worker processes delivery asynchronously
+-> API создаёт invitations и delivery jobs
+-> jobs попадают в Redis/RQ
+-> worker обрабатывает доставку отдельно
 ```
 
-For an MVP, RQ is simpler than Celery.
+Почему RQ, а не Celery:
 
-Trade-offs:
+- проще настроить;
+- проще объяснить;
+- достаточно для MVP;
+- меньше инфраструктурной сложности.
 
-- simpler setup;
-- easier to explain;
-- enough for a portfolio project;
-- less feature-rich than Celery;
-- needs extra reliability mechanisms for production.
+Trade-off: для production нужно добавить retry/backoff, dead-letter handling, sweeper/outbox и observability.
 
-## 11. What Does `queued` Mean?
+---
 
-`queued` means that the invitation has been created and the delivery job has been queued, but the worker has not yet marked the invitation as successfully delivered.
+## 10. Что значит статус `queued`?
 
-In the MVP demo, the public invite link is returned directly by the API, so it can be opened even while the invitation status is still `queued`.
+`queued` означает, что invitation создан и delivery job поставлена в очередь, но worker ещё не отметил invitation как успешно доставленный.
 
-Production interpretation:
+Типичный flow:
 
 ```text
-queued = created and waiting for delivery processing
-sent = worker successfully delivered the message
-opened = user opened the public link
-completed = user submitted a response
+queued -> sent -> opened -> completed
 ```
 
-In the current MVP, `queued` is acceptable for demo purposes because Telegram delivery is represented by stub logic.
+В demo public link возвращается прямо из API, поэтому его можно открыть даже в статусе `queued`.
 
-## 12. Current Quality Gate
+В production пользователь должен получать ссылку только после фактической доставки через Telegram.
 
-The current project quality gate is:
+---
+
+## 11. Quality gate
+
+Текущая проверка проекта:
 
 ```bash
 poetry run ruff check .
 poetry run python -m pytest
 ```
 
-Current state:
+Что можно сказать:
 
-- ruff passes;
-- tests pass;
-- migration files are excluded from ruff because they are historical Alembic migration scripts.
+- проект покрыт тестами на core-flow;
+- используется ruff;
+- есть Alembic migrations;
+- миграционные файлы можно исключать из ruff, потому что это исторические generated scripts.
 
-## 13. What Is Not Production-Ready Yet?
+---
 
-This project is intentionally an MVP.
+## 12. Что пока не production-ready
 
-Not production-ready yet:
+Проект честно позиционируется как MVP.
 
-- operator API uses a shared `X-API-Key`;
-- bot endpoints are not protected by Telegram webhook verification;
-- Telegram delivery is not implemented yet;
-- delivery uses stub logic;
-- no retry/backoff/dead-letter mechanism;
-- no outbox/sweeper recovery;
-- no rate limiting;
-- no audit log;
-- no proper observability;
-- no user deletion/retention policy;
-- no production deployment setup.
+Пока не хватает:
 
-## 14. Production Hardening Roadmap
+- реальной Telegram Bot API интеграции;
+- нормальной operator auth вместо общего `X-API-Key`;
+- защиты bot endpoints;
+- retry/backoff/dead-letter механизма;
+- outbox/sweeper для восстановления очереди;
+- rate limiting;
+- audit log;
+- observability;
+- user deletion/anonymization policy;
+- production Dockerfile для API/worker;
+- строгой схемы survey answers.
 
-Before a real launch, I would add:
+Хорошая формулировка:
+
+> Я намеренно презентую проект как backend-MVP. Он показывает архитектурные решения и основной flow, но я отдельно документирую, что нужно добавить перед production.
+
+---
+
+## 13. Production roadmap
+
+Перед production я бы добавил:
 
 ### Security
 
-- proper operator authentication;
-- roles and permissions;
-- audit logs;
+- operator authentication;
+- roles/permissions;
+- audit log;
 - bot endpoint protection;
 - rate limiting;
-- protected Swagger/OpenAPI in production.
+- protected Swagger/OpenAPI.
 
-### Delivery Reliability
+### Delivery reliability
 
 - real Telegram Bot API adapter;
 - timeouts;
 - retry with backoff;
 - dead-letter handling;
-- manual retry for failed jobs;
-- worker service in production.
+- manual retry;
+- worker as production service.
 
-### Queue Reliability
+### Queue reliability
 
 - PostgreSQL as source of truth;
-- pending job sweeper;
+- sweeper for pending jobs;
 - stale processing job recovery;
-- transactional outbox pattern or outbox-like flow.
+- outbox pattern или аналог.
 
 ### Idempotency
 
-- idempotency key for bulk sends;
-- protection from duplicate send requests;
-- graceful handling of database integrity errors;
-- atomic public invite submission.
+- `Idempotency-Key` для bulk send;
+- защита от duplicate send;
+- atomic public submit;
+- graceful handling of `IntegrityError`.
 
 ### Observability
 
 - structured logs;
-- request/correlation IDs;
+- correlation IDs;
 - queue metrics;
 - worker heartbeat;
 - alerts;
 - error tracking.
 
-### Data Protection
+### Data protection
 
 - consent;
-- deletion;
+- deletion/anonymization;
 - retention policy;
 - restricted operator access;
-- careful logging;
 - secure backups.
 
-## 15. Likely Interview Questions and Answers
+---
 
-### Why did you choose FastAPI?
+## 14. Частые вопросы на собеседовании
 
-Because it is a modern Python web framework with good async support, automatic OpenAPI generation, dependency injection and Pydantic integration. It is a good fit for an API-first backend MVP.
+### Почему FastAPI?
 
-### Why async SQLAlchemy?
+Потому что это современный Python framework для API-first backend: async support, dependency injection, Pydantic, automatic OpenAPI и удобная структура для MVP.
 
-The project is API-centric and can involve I/O-bound operations: database access, Redis and later Telegram API calls. Async SQLAlchemy fits this model, though it adds complexity around sessions, lazy loading and tests.
+### Почему async SQLAlchemy?
 
-### Why not Django?
+Проект I/O-bound: база, Redis, в будущем Telegram API. Async SQLAlchemy хорошо подходит под такую модель, хотя добавляет сложность с sessions, lazy loading и тестами.
 
-Django would be a good option for a full admin-heavy product. But this project is API-first, lightweight and focused on FastAPI backend skills, so FastAPI is a better fit for my learning and interview goals.
+### Почему не Django?
 
-### Why store segments as JSON?
+Django был бы хорош для admin-heavy продукта. Но здесь я хотел показать API-first backend на FastAPI, async database access, queues и явное разделение слоёв.
 
-Because for an MVP, JSON gives flexibility and allows nested filter logic without designing a complex rule table system too early. I compensate for this flexibility with explicit validation and controlled compilation to SQLAlchemy.
+### Почему JSON-сегменты безопасны?
 
-### Is JSON segmentation safe?
+Потому что система не принимает raw SQL. JSON валидируется по whitelist полей и операторов, а затем компилируется в SQLAlchemy expressions.
 
-It can be safe if the system does not execute raw SQL from user input. In my case, JSON is validated against allowed fields and operators, then compiled into SQLAlchemy expressions. Raw arbitrary SQL is not accepted.
+### Что будет, если Redis упадёт?
 
-### Why hash invitation tokens?
+В MVP enqueue failure логируется. В production я бы считал PostgreSQL source of truth и добавил sweeper/requeue, который находит pending jobs и повторно ставит их в очередь.
 
-Because invitation links are bearer secrets. If raw tokens were stored and the database leaked, valid invite links would leak too. Hashing reduces this risk.
+### Можно ли отправить response дважды?
 
-### Why Redis/RQ?
+Нет. После successful submit invitation получает `used_at` и статус `completed`. Повторный submit возвращает ошибку. Дополнительно есть constraint на один response per invitation.
 
-To avoid doing message delivery synchronously inside the API request. The API creates jobs, and workers can process delivery independently.
+### Какие главные trade-offs?
 
-### What happens if Redis is down?
+- JSON segmentation гибкая, но сложнее для анализа и оптимизации.
+- RQ проще Celery, но требует production-hardening.
+- `X-API-Key` достаточно для MVP, но не для production.
+- Raw invite links удобно возвращать в demo, но не стоит делать так в production.
+- JSONB answers гибкие, но требуют schema validation перед production.
 
-In the MVP, enqueue failure is logged. For production, I would keep PostgreSQL as the source of truth and add a sweeper/requeue process that finds pending jobs and re-enqueues them later.
+---
 
-### What happens if a worker crashes?
+## 15. Сильные стороны проекта
 
-In production, I would add retry logic, stale job recovery, heartbeat monitoring and dead-letter handling.
+Стоит подчеркнуть:
 
-### Can the same token be submitted twice?
+- это не просто CRUD;
+- есть понятная доменная проблема;
+- есть цельный backend-flow;
+- есть JSON DSL для сегментов;
+- есть token hashing;
+- есть public invite flow;
+- есть разделение business и delivery сущностей;
+- есть Redis/RQ pipeline;
+- есть Alembic migrations;
+- есть tests + ruff;
+- есть честный production roadmap.
 
-No. The response flow marks the invitation as used/completed, and repeated submission returns an error. There is also a database-level uniqueness constraint around responses per invitation.
+---
 
-### What are the main trade-offs in the project?
+## 16. Слабые места, о которых лучше говорить честно
 
-The main trade-offs are:
+- нет real Telegram adapter;
+- нет UI;
+- ограниченное покрытие тестами;
+- нет полноценной auth model;
+- нет retry/backoff;
+- нет observability stack;
+- нет полноценной anonymization policy;
+- нет production deployment setup.
 
-- JSON segmentation is flexible but harder to optimize;
-- RQ is simple but less feature-rich than Celery;
-- X-API-Key is enough for MVP but not production-grade auth;
-- returning raw invite links is useful for local demo but should be restricted in production;
-- storing answers as JSONB is flexible but needs survey schema validation before production.
+Хорошая формулировка:
 
-## 16. Strong Points to Highlight
+> Я не пытаюсь выдать MVP за production. Для меня ценность проекта в том, что он показывает backend-мышление: модель данных, API flow, безопасность токенов, сегментацию, очередь доставки и понимание production gaps.
 
-- not just CRUD;
-- clear domain model;
-- token hashing;
-- JSON validation and compilation;
-- async FastAPI + SQLAlchemy;
-- Alembic migrations;
-- Redis/RQ delivery pipeline;
-- explicit MVP limitations;
-- production readiness roadmap;
-- tests and ruff quality gate;
-- verified local demo scenario.
+---
 
-## 17. Weak Points to Be Honest About
+## 17. Личное позиционирование
 
-- no real Telegram adapter yet;
-- no UI;
-- limited test coverage;
-- shared API key instead of real auth;
-- no retry/backoff yet;
-- no production Dockerfile for API/worker yet;
-- no observability stack;
-- no full survey schema validation.
+Этот проект хорошо связан с моим прошлым опытом UX-исследователя.
 
-Good phrasing:
+Я понимаю доменную проблему, потому что сам сталкивался с рекрутингом респондентов, сегментацией пользователей, рассылками и ручным трекингом ответов.
 
-> I intentionally keep this project honest as a backend MVP. I can explain the current trade-offs and I have documented what needs to be added before production.
+Но в этом проекте я фокусируюсь именно на backend implementation:
 
-## 18. Personal Positioning
+- API design;
+- data model;
+- async database access;
+- migrations;
+- JSON segmentation;
+- invitation security;
+- delivery architecture;
+- tests.
 
-This project connects well with my previous UX research background.
+Хорошая формулировка:
 
-I understand the product problem because I have worked with research processes and participant recruitment. At the same time, I use this project to demonstrate backend engineering skills: API design, data modeling, async database access, migrations, token security, queues and testing.
-
-Good phrasing:
-
-> My UX research background helps me understand the domain, but in this project I focus on backend implementation: data model, API flow, segmentation logic, invitation security and delivery architecture.
+> Мой UX research background помогает мне понимать продуктовую задачу, но SurveyGate я использую как backend-проект: здесь я показываю API-дизайн, модель данных, сегментацию, token security, очередь доставки и работу с PostgreSQL/Redis.

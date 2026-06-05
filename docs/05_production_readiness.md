@@ -1,232 +1,374 @@
-# Production Readiness Roadmap
+# SurveyGate — Production Readiness Roadmap
 
-SurveyGate is currently a backend MVP designed for interview demonstration and architectural discussion.
+SurveyGate сейчас является backend-MVP для демонстрации архитектуры и обсуждения на собеседовании.
 
-It is not yet ready for commercial production usage.
+Проект уже показывает ключевой flow:
 
-This document describes what should be added before a real production launch.
+- регистрация пользователя;
+- заполнение профиля;
+- создание survey;
+- создание JSON-сегмента;
+- рассылка invitations;
+- постановка delivery jobs в Redis/RQ;
+- обработка worker-ом;
+- открытие публичной ссылки;
+- отправка response.
 
-## 1. API Security
+Но проект пока не готов к коммерческому production-запуску.
 
-Current MVP state:
+---
 
-- operator API is protected with a single `X-API-Key`;
-- bot-like endpoints accept user data directly;
-- public invite endpoints are accessible through bearer-style links.
+## 1. Безопасность API
 
-Production improvements:
+### Текущее состояние
 
-- replace shared `X-API-Key` with proper operator authentication;
-- add roles and permissions for operator actions;
-- protect bot endpoints with a service token or Telegram webhook verification;
-- add audit logging for operator actions;
-- add rate limiting for operator, bot and public endpoints;
-- configure CORS, TrustedHost and security headers;
-- disable or protect Swagger/OpenAPI in production.
+- operator API защищён одним `X-API-Key`;
+- bot-like endpoints напрямую принимают пользовательские данные;
+- public invite endpoints доступны по bearer-ссылке.
 
-Why it matters:
+### Что нужно добавить
 
-The project is API-centric. Authentication, authorization and resource control are critical risks for this type of system.
+- полноценную авторизацию операторов;
+- роли и права доступа;
+- защиту bot endpoints через service token или проверку Telegram webhook;
+- rate limiting для operator/bot/public endpoints;
+- audit log действий оператора;
+- настройку CORS, TrustedHost и security headers;
+- отключение или защиту Swagger/OpenAPI в production.
 
-## 2. Secrets and Sensitive Data
+### Почему важно
 
-Current MVP state:
+Операторские endpoints могут создавать опросы, сегменты и массовые рассылки. В production одного общего API-ключа недостаточно.
 
-- invite links are returned by the send invitations endpoint for demo purposes;
-- local configuration uses `.env`;
-- message delivery is represented by stub logging.
+---
 
-Production improvements:
+## 2. Секреты и чувствительные данные
 
-- never log `DATABASE_URL` or other secrets;
-- never log raw invitation tokens;
-- avoid logging full message text if it may contain personal data;
-- mask or hash `telegram_id` in logs where possible;
-- use deployment-level secret management;
-- separate dev and prod settings;
-- avoid returning invite links from bulk APIs unless strictly required.
+### Текущее состояние
 
-Why it matters:
+- настройки хранятся через `.env`;
+- raw invitation token не хранится в БД;
+- send endpoint возвращает invite links для demo-flow;
+- доставка сообщений пока заменена stub-логикой.
 
-Invitation links are bearer secrets. Anyone with the link can access the public invite flow.
+### Что нужно добавить
 
-## 3. Reliable Message Delivery
+- хранение секретов через инфраструктурный secret manager;
+- разделение dev/staging/prod настроек;
+- запрет логирования raw tokens, API keys, `DATABASE_URL`, `SECRET_KEY`;
+- маскирование `telegram_id` в логах;
+- отказ от возврата raw invite links из bulk API в production;
+- контроль утечек токенов через логи, referrer, debug output.
 
-Current MVP state:
+### Почему важно
 
-- `InvitationDeliveryJob` exists;
-- Redis/RQ queue integration exists;
-- actual Telegram delivery is still a stub.
+Invite link — это bearer-secret. Любой, у кого есть ссылка, может открыть public invite flow.
 
-Production improvements:
+---
 
-- implement a real Telegram Bot API adapter;
-- add request timeouts;
-- handle Telegram `429 Too Many Requests`;
-- add retry with backoff;
-- add delivery rate limits;
-- add failed/dead-letter handling;
-- add manual retry for failed jobs;
-- run worker as a separate production service.
+## 3. Персональные данные и приватность
 
-Why it matters:
+### Текущее состояние
 
-The most important production risk is not creating invitations, but reliably delivering them.
+Проект хранит:
 
-## 4. Queue Reliability
+- профиль пользователя;
+- Telegram ID;
+- ответы на опросы;
+- текст сообщения в delivery jobs.
 
-Current MVP state:
+### Что нужно добавить
 
-- delivery jobs are created in PostgreSQL;
-- after commit they are enqueued into Redis/RQ.
+- privacy policy;
+- согласие на обработку данных;
+- полноценный `/delete_me` или anonymization flow;
+- retention policy для responses и delivery jobs;
+- ограничение доступа операторов к персональным данным;
+- защиту backup-ов;
+- audit доступа к данным.
 
-Potential problem:
+### Почему важно
 
-- database commit can succeed;
-- Redis enqueue can fail;
-- then a delivery job exists in PostgreSQL but is missing from the queue.
+SurveyGate работает с данными респондентов, поэтому production-версия должна явно решать вопросы хранения, удаления и доступа к данным.
 
-Production improvements:
+---
 
-- treat PostgreSQL as the source of truth;
-- add a sweeper/requeue process for pending jobs;
-- requeue stale queued/processing jobs;
-- consider a transactional outbox pattern;
-- track queue health metrics.
+## 4. Надёжная доставка сообщений
 
-Why it matters:
+### Текущее состояние
 
-Redis should be treated as a transport layer, not as the only source of truth.
+- есть `InvitationDeliveryJob`;
+- есть Redis/RQ queue;
+- worker обрабатывает delivery jobs;
+- реальная Telegram-доставка пока не реализована.
 
-## 5. Idempotency and Race Conditions
+### Что нужно добавить
 
-Production risks:
+- адаптер к реальному Telegram Bot API;
+- timeouts для внешних запросов;
+- обработку Telegram `429 Too Many Requests`;
+- retry с backoff;
+- dead-letter handling;
+- ручной retry failed jobs;
+- запуск worker-а как отдельного production-сервиса;
+- отображение ошибок доставки оператору.
 
-- operator clicks "send" twice;
-- HTTP request is retried after timeout;
-- two workers process the same job;
-- two public submissions happen at the same time;
-- invitation is revoked while delivery is already queued.
+### Почему важно
 
-Production improvements:
+Главный production-риск — не создание invitations, а их реальная и проверяемая доставка пользователям.
 
-- add `Idempotency-Key` for bulk send operations;
-- prevent duplicate sends without explicit confirmation;
-- handle database `IntegrityError` gracefully;
-- use atomic status transitions for delivery jobs;
-- use atomic public invite submission;
-- enforce unique constraints at the database level;
-- return correct conflict responses instead of generic 500 errors.
+---
 
-## 6. Public Form Validation
+## 5. Надёжность очереди
 
-Current MVP state:
+### Текущее состояние
 
-- public answers are stored as JSON.
+- delivery jobs создаются в PostgreSQL;
+- после commit они ставятся в Redis/RQ;
+- PostgreSQL хранит persistent state;
+- Redis/RQ используется как очередь выполнения.
 
-Production improvements:
+### Потенциальная проблема
 
-- define a survey question schema;
-- validate answers against the schema;
-- limit request body size;
-- rate-limit public endpoints;
-- protect against repeated submission;
-- avoid leaking invite tokens through logs or referrers.
+Может произойти сбой между commit в БД и enqueue в Redis:
 
-Why it matters:
+```text
+PostgreSQL commit успешен
+Redis enqueue не произошёл
+delivery job есть в БД, но отсутствует в очереди
+```
 
-Flexible JSON is useful for MVP speed, but production data needs validation and limits.
+### Что нужно добавить
 
-## 7. Deployment
+- считать PostgreSQL source of truth;
+- использовать Redis/RQ только как transport layer;
+- sweeper/requeue для pending jobs;
+- requeue зависших queued/processing jobs;
+- outbox pattern или аналогичный recovery-механизм;
+- метрики очереди;
+- worker heartbeat;
+- алерты на stuck jobs.
 
-Current MVP state:
+### Почему важно
 
-- Docker Compose starts PostgreSQL and Redis;
-- API is run locally with Uvicorn;
-- no production API/worker containers yet.
+Система должна гарантировать, что созданные delivery jobs либо попадут в worker, либо будут явно помечены как failed/stuck.
 
-Production improvements:
+---
 
-- add Dockerfile;
-- add API container;
-- add worker container;
-- add migration job;
-- run without `--reload`;
-- keep PostgreSQL and Redis private;
-- add reverse proxy;
-- enable HTTPS;
-- add healthchecks;
-- define backup/restore process;
-- document rollback strategy.
+## 6. Идемпотентность и race conditions
 
-## 8. Observability
+### Production-риски
 
-Current MVP state:
+- оператор дважды нажал “send”;
+- HTTP-запрос повторился после timeout;
+- два worker-а обрабатывают одну job;
+- пользователь дважды отправил response;
+- invitation был revoked, пока delivery job уже стояла в очереди.
 
-- `/health` and `/health/db` exist.
+### Что нужно добавить
 
-Production improvements:
+- `Idempotency-Key` для bulk send операций;
+- защиту от duplicate send;
+- атомарный public submit;
+- row locking при submit;
+- корректную обработку `IntegrityError`;
+- атомарные переходы статусов delivery jobs;
+- idempotent worker operations;
+- понятные `409 Conflict` вместо случайных `500`.
 
-- add `/health/live`;
-- add `/health/ready`;
-- add Redis health check;
-- add worker heartbeat;
-- add structured logs;
-- add request/correlation IDs;
-- collect API latency and error metrics;
-- collect queue metrics: pending, queued, processing, sent, failed;
-- add alerts for failed jobs, growing queues and dead workers;
-- integrate error tracking such as Sentry.
+### Почему важно
 
-Why it matters:
+Большая часть production-багов в таких системах появляется из-за retry, дублей и частичных сбоев.
 
-For this project, a healthy API is not enough. The system must also prove that invitations are actually being delivered.
+---
 
-## 9. Personal Data and Privacy
+## 7. Валидация публичных ответов
 
-The project stores user profile data, Telegram identifiers and survey responses.
+### Текущее состояние
 
-Production improvements:
+- ответы хранятся как JSONB;
+- строгой схемы survey answers пока нет.
 
-- add privacy policy;
-- collect consent for participation and data processing;
-- implement user deletion;
-- implement data retention policy;
-- restrict operator access to personal data;
-- audit access and modifications;
-- protect backups;
-- minimize stored data.
+### Что нужно добавить
 
-## 10. Production-Grade Tests and CI
+- схему вопросов survey;
+- валидацию `answers` перед сохранением;
+- ограничение размера request body;
+- rate limiting public endpoints;
+- защиту от повторной отправки;
+- понятные состояния для expired/revoked/used invitation.
 
-Current MVP state:
+### Почему важно
 
-- tests cover some core flows.
+JSONB удобен для MVP, но production-данные должны быть валидными и ограниченными по размеру.
 
-Production improvements:
+---
 
-- test full flow: register user -> create survey -> create segment -> send invitations -> process delivery -> submit response;
-- test expired/revoked/used invitations;
-- test duplicate public submission;
-- test duplicate send;
-- test Redis/Telegram failure scenarios;
-- test retry and failed jobs;
-- test auth negative cases;
-- test migrations on a clean database;
-- add CI for ruff, pytest, migration smoke test and Docker build.
+## 8. Deployment
+
+### Текущее состояние
+
+- Docker Compose поднимает PostgreSQL и Redis;
+- API запускается локально через Uvicorn;
+- worker запускается отдельно через RQ CLI;
+- production API/worker containers пока нет.
+
+### Что нужно добавить
+
+- Dockerfile;
+- отдельный API container;
+- отдельный worker container;
+- migration job;
+- запуск без `--reload`;
+- закрытый доступ к PostgreSQL и Redis;
+- reverse proxy;
+- HTTPS;
+- healthchecks;
+- backup/restore process;
+- rollback strategy;
+- staging environment.
+
+### Почему важно
+
+Production должен запускаться повторяемо и безопасно, а не вручную как локальный dev-стенд.
+
+---
+
+## 9. Observability
+
+### Текущее состояние
+
+Есть базовые endpoints:
+
+```text
+/health
+/health/db
+```
+
+### Что нужно добавить
+
+- `/health/live`;
+- `/health/ready`;
+- Redis health check;
+- worker heartbeat;
+- structured logs;
+- request/correlation IDs;
+- API latency/error metrics;
+- queue metrics:
+  - pending;
+  - queued;
+  - processing;
+  - sent;
+  - failed;
+- alerts на failed jobs, растущую очередь и dead workers;
+- error tracking, например Sentry.
+
+### Почему важно
+
+Здоровый API ещё не означает, что invitations реально доставляются. Нужно видеть состояние worker-а и очереди.
+
+---
+
+## 10. Тесты и CI
+
+### Текущее состояние
+
+В проекте уже есть тесты для части core-flow.
+
+### Что нужно добавить
+
+Тесты на:
+
+- полный flow:
+  - register user;
+  - update profile;
+  - create survey;
+  - create segment;
+  - preview segment;
+  - send invitations;
+  - process delivery;
+  - open invite;
+  - submit response;
+- expired/revoked/used invitations;
+- duplicate submit;
+- duplicate send;
+- Redis failure;
+- Telegram failure;
+- invalid segment DSL;
+- invalid device/service codes;
+- auth negative cases;
+- миграции на чистой БД.
+
+CI:
+
+- ruff;
+- pytest;
+- migration smoke test;
+- Docker build;
+- basic startup/import check.
+
+### Почему важно
+
+MVP уже демонстрирует архитектуру, но production требует уверенности, что critical flows не ломаются при изменениях.
+
+---
+
+## 11. Data model hardening
+
+Перед production стоит добавить или проверить:
+
+```sql
+CHECK (invitations.status IN ('queued', 'sent', 'opened', 'completed', 'revoked'));
+```
+
+Если бизнес-правило требует один response на пользователя в рамках survey:
+
+```sql
+UNIQUE (survey_id, user_id)
+```
+
+Также стоит рассмотреть:
+
+- единый тип `bigint` для `telegram_id`;
+- поле `rq_job_id` в `invitation_delivery_jobs`;
+- дополнительные индексы для public token lookup;
+- retention policy для старых delivery jobs.
+
+---
+
+## Рекомендуемый порядок работ
+
+1. Нормальная авторизация operator API.
+2. Защита bot endpoints.
+3. Реальный Telegram Bot API adapter.
+4. Rate limiting.
+5. Атомарный public submit.
+6. Retry/backoff для delivery jobs.
+7. Sweeper/outbox для восстановления очереди.
+8. API и worker containers.
+9. Readiness/liveness checks.
+10. Structured logs и queue metrics.
+11. `/delete_me` / anonymization policy.
+12. CI: tests, lint, migrations, Docker build.
+13. Survey answer schema validation.
+14. Survey statistics / operator dashboard.
+
+---
 
 ## Summary
 
-The MVP is useful for demonstrating backend design, but production readiness requires a hardening layer:
+SurveyGate уже полезен как backend-MVP для демонстрации архитектуры.
 
-- security;
-- reliable delivery;
-- queue recovery;
-- idempotency;
-- validation;
+Но перед production нужно усилить:
+
+- безопасность;
+- доставку сообщений;
+- восстановление очереди;
+- идемпотентность;
+- валидацию данных;
 - deployment;
 - observability;
 - privacy;
-- tests.
+- тесты.
 
-The next engineering step should not be adding more business features. It should be making the existing flow reliable, observable and safe.
+Следующий инженерный шаг — не добавлять новые бизнес-фичи, а сделать текущий flow надёжным, наблюдаемым и безопасным.

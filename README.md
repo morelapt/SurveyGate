@@ -1,84 +1,123 @@
-# SurveyGate — UX Research Recruiting Platform Backend MVP
+# SurveyGate — Backend MVP платформы для UX-рекрутинга
 
-SurveyGate is a backend MVP for recruiting UX research participants through targeted survey invitations.
+SurveyGate — это backend MVP сервиса для рекрутинга UX-респондентов и управления приглашениями на опросы.
 
-The project demonstrates an asynchronous FastAPI backend with:
+Проект демонстрирует асинхронный backend на FastAPI с хранением профилей пользователей, JSON-сегментацией аудитории, генерацией безопасных invitation links, публичным flow открытия/отправки ответа и асинхронной обработкой доставки через Redis/RQ worker.
 
-- user profile storage;
-- JSON-based audience segmentation;
-- survey and invitation management;
-- hashed invitation tokens;
-- public invite links;
-- Redis/RQ-based delivery queue;
-- PostgreSQL persistence and Alembic migrations.
+## TL;DR
 
-## Problem
+SurveyGate решает задачу targeted-рекрутинга респондентов для UX-исследований.
 
-UX researchers often need to:
+Основной flow:
 
-- find relevant participants;
-- filter users by profile attributes;
-- send survey or interview invitations;
-- avoid repeatedly contacting the same respondent;
-- track whether an invitation was opened or completed.
+1. Респондент регистрируется через bot-like Telegram identity flow.
+2. Оператор создаёт опрос и JSON-сегмент аудитории.
+3. Система валидирует сегмент, компилирует его в SQLAlchemy-запрос и находит подходящих пользователей.
+4. Для подходящих пользователей создаются уникальные одноразовые invitation links.
+5. Delivery jobs сохраняются в PostgreSQL и ставятся в Redis/RQ очередь.
+6. Отдельный RQ worker обрабатывает задачи доставки.
+7. Респондент открывает публичную tokenized-ссылку и отправляет ответ на опрос.
 
-In many teams this is done through a mix of Google Forms, spreadsheets, Telegram chats and manual outreach. That workflow does not scale well and is difficult to audit.
+Проект сфокусирован на backend-архитектуре: async FastAPI, SQLAlchemy 2.0, PostgreSQL, Alembic migrations, Redis/RQ, secure token handling, background jobs и разделение бизнес-логики по service layer.
+
+## Проблема
+
+UX-исследователям часто нужно:
+
+- находить подходящих респондентов;
+- фильтровать пользователей по профилю;
+- отправлять приглашения на опросы или интервью;
+- не контактировать повторно с одним и тем же респондентом без необходимости;
+- отслеживать, было ли приглашение отправлено, открыто и завершено.
+
+Во многих командах этот процесс собирается вручную из Google Forms, таблиц, Telegram-чатов и ручной рассылки. Такой workflow плохо масштабируется, сложно аудируется и легко ломается при росте количества респондентов.
 
 ## MVP Scope
 
-This project implements the backend layer of a recruiting platform.
+Проект реализует backend-слой рекрутинговой платформы.
 
-Implemented in the current MVP:
+В текущем MVP реализовано:
 
-- user registration/profile endpoints for bot-like flows;
-- operator API protected with `X-API-Key`;
-- survey creation;
-- segment creation with JSON filters;
-- segment preview;
-- invitation generation;
-- invitation token hashing;
-- public invite open/submit flow;
-- delivery job creation;
-- Redis/RQ queue integration for invitation delivery;
-- PostgreSQL schema migrations with Alembic;
-- automated tests for core flows.
+- регистрация и обновление профиля пользователя через bot-like API;
+- operator API, защищённый через `X-API-Key`;
+- создание опросов;
+- создание JSON-сегментов;
+- preview пользователей, подходящих под сегмент;
+- генерация приглашений;
+- хранение только hash от invitation token;
+- публичный flow открытия invitation link и отправки ответа;
+- создание delivery jobs;
+- интеграция с Redis/RQ для постановки задач доставки в очередь;
+- отдельный RQ worker для обработки delivery jobs;
+- PostgreSQL schema migrations через Alembic;
+- автоматические тесты для core flows.
 
-Current limitations:
+Текущие ограничения MVP:
 
-- no UI/admin panel;
-- no real Telegram Bot API integration yet;
-- message delivery is represented by a stub sender;
-- no production-grade authentication/authorization;
-- no rate limiting;
-- no full observability stack;
-- no production deployment configuration yet.
+- нет UI/admin panel;
+- нет production-grade authentication/authorization;
+- operator API пока защищён упрощённо через `X-API-Key`;
+- реальная интеграция с Telegram Bot API ещё не подключена;
+- отправка сообщений сейчас представлена stub sender’ом;
+- нет rate limiting;
+- нет полноценного observability stack;
+- нет production deployment configuration;
+- нет полноценной retry/backoff/dead-letter логики для failed delivery jobs.
 
-## Architecture
+## Почему это не просто CRUD
+
+SurveyGate содержит не только операции создания/чтения/обновления сущностей, а полноценный доменный backend workflow:
+
+- JSON-сегменты валидируются и компилируются в SQLAlchemy-запросы;
+- система находит пользователей, подходящих под audience segment;
+- для каждого пользователя создаётся уникальный tokenized invitation link;
+- raw tokens не хранятся в базе, вместо них сохраняется только hash;
+- `Invitation` отделён от `InvitationDeliveryJob`, чтобы не смешивать бизнес-доступ к опросу и техническую доставку сообщения;
+- delivery вынесен из HTTP request/response cycle в Redis/RQ worker;
+- публичный invite flow отслеживает state transitions: `sent -> opened -> completed`;
+- resend/revocation logic позволяет заменить активное приглашение новым без хранения старого raw token.
+
+## Архитектура
 
 ```text
-Client / Operator
-        |
-        v
-FastAPI application
-        |
-        +--> PostgreSQL
-        |       - users
-        |       - surveys
-        |       - segments
-        |       - survey sends
-        |       - invitations
-        |       - invitation delivery jobs
-        |       - responses
-        |
-        +--> Redis / RQ
-                - background delivery queue
-                - worker processes delivery jobs
+Operator / Bot-like client / Respondent
+              |
+              v
+        FastAPI application
+              |
+              +--------------------+
+              |                    |
+              v                    v
+        PostgreSQL             Redis / RQ
+        source of truth        delivery queue
+              ^                    |
+              |                    v
+              +------------ RQ Worker
+                            |
+                            v
+                    Stub sender / future Telegram API
 ```
+
+PostgreSQL хранит бизнес-состояние системы:
+
+- users;
+- user identities;
+- surveys;
+- segments;
+- survey sends;
+- invitations;
+- invitation delivery jobs;
+- responses.
+
+Redis/RQ используется как transport layer для фоновых задач доставки.
+
+Worker — отдельный процесс. Он слушает очередь `invitation_delivery`, загружает `InvitationDeliveryJob` из PostgreSQL, обрабатывает доставку и обновляет статус задачи в базе.
 
 ## Tech Stack
 
 - Python 3.12
 - FastAPI
+- Pydantic
 - SQLAlchemy 2.0 async
 - PostgreSQL
 - Alembic
@@ -89,17 +128,23 @@ FastAPI application
 - pytest-asyncio
 - ruff
 
-## Main Domain Concepts
+## Основные доменные сущности
 
 ### User
 
-A participant who can be invited to surveys.
+Респондент, которого можно пригласить к участию в опросе.
+
+### UserIdentity
+
+Внешняя идентичность пользователя, например Telegram identity.
+
+Вынос identity в отдельную сущность позволяет не смешивать бизнес-профиль пользователя и внешний канал регистрации/доставки.
 
 ### Segment
 
-A reusable JSON-based filter that describes which users should be targeted.
+Переиспользуемый JSON-фильтр, описывающий аудиторию, которую нужно таргетировать.
 
-Example:
+Пример:
 
 ```json
 {
@@ -111,30 +156,30 @@ Example:
 }
 ```
 
-Segments are first validated and then compiled into a SQLAlchemy query.
+Сегмент сначала валидируется, а затем компилируется в SQLAlchemy query.
 
 ### Survey
 
-A research activity that users can be invited to.
+Опрос или исследовательская активность, на которую можно приглашать пользователей.
 
 ### SurveySend
 
-A specific launch of invitations for a survey and segment.
+Конкретный запуск рассылки приглашений по опросу и сегменту.
 
 ### Invitation
 
-A business entity representing a user's right to open and submit a survey response through a tokenized public link.
+Бизнес-сущность, которая представляет право конкретного пользователя открыть публичную ссылку и отправить ответ на опрос.
 
-The raw token is shown only when the invite is created. The database stores only a token hash.
+Raw token показывается только при создании invite link. В базе хранится только hash токена.
 
 ### InvitationDeliveryJob
 
-A technical entity representing a delivery attempt for an invitation.
+Техническая сущность доставки приглашения.
 
-This separation is intentional:
+Разделение сделано намеренно:
 
-- `Invitation` answers: "Can this user access this survey?"
-- `InvitationDeliveryJob` answers: "Was the message delivered to the user?"
+- `Invitation` отвечает на вопрос: “Может ли этот пользователь получить доступ к этому опросу?”
+- `InvitationDeliveryJob` отвечает на вопрос: “Была ли технически обработана доставка сообщения?”
 
 ## State Flows
 
@@ -180,13 +225,13 @@ PATCH /bot/users/profile
 
 ### Operator API
 
-All operator endpoints require:
+Все operator endpoints требуют header:
 
 ```http
 X-API-Key: <operator-api-key>
 ```
 
-Available endpoints:
+Доступные endpoints:
 
 ```http
 GET /operator/ping
@@ -205,7 +250,11 @@ POST /s/{survey_id}/{token}
 
 ## Quick Start
 
-### 1. Clone the repository
+Этот quick start запускает PostgreSQL и Redis через Docker Compose, а FastAPI app и RQ worker запускаются локально через Poetry.
+
+Production Dockerfile и отдельные полностью dockerized API/worker containers указаны в roadmap как следующий шаг production readiness.
+
+### 1. Склонировать репозиторий
 
 ```bash
 git clone https://github.com/morelapt/SurveyGate.git
@@ -213,13 +262,13 @@ cd SurveyGate
 git checkout feature/redis-delivery-queue
 ```
 
-### 2. Create local environment file
+### 2. Создать локальный `.env`
 
 ```bash
 cp .env.example .env
 ```
 
-Example local values:
+Пример локальных значений:
 
 ```env
 ENV=dev
@@ -239,49 +288,79 @@ OPERATOR_API_KEY=dev-operator-key
 SECRET_KEY=dev-secret-key-change-me
 ```
 
-### 3. Start infrastructure
+Настоящий `.env` не должен попадать в GitHub. В репозитории должен храниться только `.env.example` без production-секретов.
+
+### 3. Запустить инфраструктуру
 
 ```bash
 docker compose up -d
 ```
 
-### 4. Install dependencies
+В текущем local setup Docker Compose поднимает инфраструктурные сервисы: PostgreSQL и Redis.
+
+### 4. Установить зависимости
 
 ```bash
 poetry install
 ```
 
-### 5. Run migrations
+### 5. Применить миграции
 
 ```bash
 poetry run python -m alembic upgrade head
 ```
 
-### 6. Start API
+### 6. Заполнить справочники
+
+```bash
+poetry run python -m app.scripts.seed_catalogs
+```
+
+### 7. Запустить API
 
 ```bash
 poetry run python -m uvicorn app.main:app --reload
 ```
 
-Open:
+### 8. Запустить RQ worker
+
+В отдельном терминале:
+
+```bash
+PYTHONPATH=. poetry run rq worker invitation_delivery --url redis://localhost:6379/0
+```
+
+Worker слушает очередь `invitation_delivery`, загружает delivery jobs из PostgreSQL и обновляет их статус после обработки.
+
+### 9. Открыть API docs
 
 ```text
 http://127.0.0.1:8000/docs
 ```
 
-## Running Tests
+## Tests and Linting
+
+Запуск тестов:
 
 ```bash
 poetry run python -m pytest
 ```
 
-Run linting:
+Запуск linting:
 
 ```bash
 poetry run ruff check .
 ```
 
+Проверка форматирования:
+
+```bash
+poetry run ruff format --check .
+```
+
 ## Example Flow
+
+Ниже — минимальный demo-flow для ручной проверки основного сценария.
 
 ### 1. Create a survey
 
@@ -334,14 +413,38 @@ curl -X POST "http://127.0.0.1:8000/operator/surveys/1/send_invitations" \
   }'
 ```
 
-The response includes generated invite links for local demo purposes.
+В локальном demo response может содержать сгенерированные invite links.
 
-In a production system, invite links are bearer secrets and should not be returned freely from a bulk API response.
+В production-системе invitation links являются bearer secrets и не должны свободно возвращаться из bulk API response.
 
+### 5. Open public invite link
+
+Подставьте `survey_id` и `token` из созданной invite link:
+
+```bash
+curl -X GET "http://127.0.0.1:8000/s/1/<token>"
+```
+
+Открытие ссылки переводит invitation в состояние `opened`, если invitation валиден, не истёк, не отозван и ещё не завершён.
+
+### 6. Submit response
+
+```bash
+curl -X POST "http://127.0.0.1:8000/s/1/<token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "answers": {
+      "q1": "yes",
+      "q2": "I use this service weekly"
+    }
+  }'
+```
+
+После успешной отправки создаётся `Response`, а invitation переходит в состояние `completed`.
 
 ## Demo Scenario
 
-A step-by-step local demo flow is available in:
+Более подробный пошаговый demo-flow доступен в:
 
 ```text
 docs/06_demo_scenario.md
@@ -373,97 +476,146 @@ surveygate/
 
 ### JSON-based segmentation
 
-Segments are stored as JSON trees.
+Сегменты хранятся как JSON trees.
 
-Why this is useful for an MVP:
+Почему это полезно для MVP:
 
-- fast to implement;
-- flexible enough for different filters;
-- easy to validate before execution;
-- can be compiled into SQLAlchemy queries.
+- быстро реализовать;
+- достаточно гибко для разных фильтров;
+- можно валидировать до выполнения запроса;
+- можно компилировать в SQLAlchemy queries;
+- операторская логика сегментации не требует ручного SQL.
 
 Trade-offs:
 
-- harder to optimize than fully normalized rule tables;
-- requires careful validation;
-- more complex analytics on segment structure.
+- сложнее оптимизировать, чем полностью нормализованные rule tables;
+- нужна строгая validation layer;
+- сложнее делать аналитику по структуре сегментов;
+- нужно явно ограничивать доступные поля и операторы, чтобы не превратить DSL в небезопасный query builder.
 
 ### Hashed invitation tokens
 
-Raw invitation tokens are not stored in the database.
+Raw invitation tokens не хранятся в базе.
 
-Instead:
+Flow:
 
-1. a random token is generated;
-2. the token is shown in the public invite link;
-3. only a hash of the token is stored;
-4. incoming public requests hash the provided token and compare it with the stored hash.
+1. генерируется криптографически случайный token;
+2. token показывается только в public invite link;
+3. в PostgreSQL сохраняется только hash токена;
+4. при public request входящий token снова хэшируется и сравнивается с сохранённым hash.
 
-This reduces the damage of a database leak.
+Это снижает ущерб при потенциальной утечке базы: attacker не сможет напрямую использовать raw invitation links только по данным из таблицы.
 
-### Invitation vs DeliveryJob
+### Invitation vs InvitationDeliveryJob
 
-The project separates business state from delivery mechanics.
+Проект разделяет business state и delivery mechanics.
 
-`Invitation` is the business object.
+`Invitation` — бизнес-объект:
 
-`InvitationDeliveryJob` is the technical delivery task.
+- кому выдан доступ;
+- к какому survey;
+- активен ли invitation;
+- истёк ли он;
+- был ли открыт;
+- был ли завершён;
+- был ли отозван.
 
-This allows the system to evolve toward retries, backoff, failed jobs and worker recovery without changing the core invitation model.
+`InvitationDeliveryJob` — техническая задача доставки:
+
+- какой invitation нужно доставить;
+- какой текст отправить;
+- в каком статусе находится доставка;
+- сколько было attempts;
+- какая была последняя ошибка;
+- когда задача была поставлена в очередь;
+- когда сообщение было отправлено.
+
+Это разделение позволяет развивать retries, backoff, failed jobs, worker recovery и Telegram integration без смешивания технической доставки с бизнес-моделью доступа к опросу.
 
 ### Redis/RQ queue
 
-Redis/RQ is used to move message delivery outside the request/response cycle.
+Redis/RQ используется, чтобы вынести доставку приглашений из HTTP request/response cycle.
 
-The current implementation is intentionally MVP-level:
+Текущая MVP-реализация:
 
-- delivery jobs are stored in PostgreSQL;
-- jobs are enqueued into Redis/RQ;
-- actual Telegram sending is still represented by a stub.
+- delivery jobs хранятся в PostgreSQL;
+- jobs ставятся в Redis/RQ очередь;
+- отдельный worker обрабатывает queue;
+- фактическая отправка через Telegram пока заменена stub sender’ом.
 
-For production, PostgreSQL should remain the source of truth and Redis should be treated as a delivery transport.
+Для production PostgreSQL должен оставаться source of truth, а Redis/RQ — transport layer для фоновой обработки.
 
 ## Production Readiness
 
-SurveyGate is intentionally a backend MVP, not a production-ready commercial product.
+SurveyGate намеренно является backend MVP, а не production-ready коммерческим продуктом.
 
-Before a real launch, the most important improvements would be:
+Перед реальным запуском важнее всего закрыть следующие gaps.
+
+### Security and Access Control
 
 - production-grade authentication and authorization;
-- protection for bot-facing endpoints;
-- audit log for operator actions;
+- RBAC для операторов;
+- защита bot-facing endpoints;
+- audit log для действий операторов;
 - rate limiting;
-- real Telegram Bot API integration;
-- retry/backoff/dead-letter logic for failed delivery jobs;
-- outbox or sweeper process for queue reliability;
-- idempotency keys for bulk sends;
-- atomic handling of public invite submission;
-- validation of survey answers against a survey schema;
-- Dockerfile and separate API/worker containers;
-- HTTPS and reverse proxy configuration;
-- readiness/liveness checks;
-- worker heartbeat;
-- metrics and alerts for queue health;
-- careful handling of personal data;
-- user deletion and retention policy;
-- CI pipeline for linting, tests and migration checks.
+- HTTPS и reverse proxy configuration;
+- production-grade secrets management.
 
-More details are described in `docs/05_production_readiness.md`.
+### Delivery Reliability
+
+- реальная интеграция с Telegram Bot API;
+- retry/backoff policy для failed delivery jobs;
+- dead-letter logic;
+- outbox или sweeper process для queue reliability;
+- recovery stale `processing` jobs;
+- worker heartbeat;
+- idempotency keys для bulk sends.
+
+### Data and Privacy
+
+- аккуратная обработка персональных данных;
+- user deletion flow;
+- retention policy;
+- auditability для изменений данных;
+- validation of survey answers against a survey schema.
+
+### Operations and Deployment
+
+- production Dockerfile;
+- отдельные API/worker containers;
+- readiness/liveness checks;
+- metrics and alerts для queue health;
+- structured logging;
+- CI pipeline для linting, tests и migration checks;
+- deployment configuration для staging/production.
+
+Подробнее production gaps описаны в:
+
+```text
+docs/05_production_readiness.md
+```
 
 ## Interview Positioning
 
-This project is best presented as:
+Этот проект лучше презентовать как:
 
-> A backend MVP for targeted UX research recruitment. 
-> It demonstrates async FastAPI development, SQLAlchemy 2.0, 
-> PostgreSQL schema design, JSON-based segmentation, secure invitation tokens, 
-> public invite flow and Redis/RQ-based delivery queue. 
-> The project is not production-ready yet, but the main production gaps 
-> are documented and understood.
+> Backend MVP для targeted UX research recruitment.
+> Проект демонстрирует async FastAPI development, SQLAlchemy 2.0,
+> PostgreSQL schema design, JSON-based segmentation, secure invitation tokens,
+> public invite flow и Redis/RQ-based delivery queue.
+> Проект не является production-ready, но основные production gaps описаны и архитектурно понятны.
+
+Короткая устная версия:
+
+> SurveyGate — это backend MVP сервиса для рекрутинга UX-респондентов и управления приглашениями на опросы. Оператор создаёт survey и JSON-сегмент, система находит подходящих пользователей, создаёт для них безопасные invitation links и ставит delivery jobs в Redis/RQ очередь. Доставка обрабатывается отдельным worker’ом, а PostgreSQL хранит бизнес-состояние. Из важных решений: raw tokens не хранятся в базе, `Invitation` отделён от `InvitationDeliveryJob`, а сегменты задаются через JSON DSL вместо raw SQL.
 
 ## Interview Notes
 
-A personal interview preparation guide is available in `docs/07_interview_notes.md`.
+Личные заметки для подготовки к интервью доступны в:
+
+```text
+docs/07_interview_notes.md
+```
 
 ## Author
 

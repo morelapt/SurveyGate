@@ -1,11 +1,12 @@
-# Demo Scenario
+# SurveyGate — Demo Scenario
 
-This document describes a minimal local scenario for demonstrating SurveyGate during an interview.
+Документ описывает минимальный локальный сценарий для демонстрации SurveyGate на собеседовании.
 
-The goal is to show the main backend flow:
+Цель demo — показать основной backend-flow:
 
 ```text
 register user
+-> update profile
 -> create survey
 -> create segment
 -> preview segment
@@ -16,9 +17,31 @@ register user
 -> try to submit the same token again
 ```
 
+---
+
+## Что показывает demo
+
+Этот сценарий демонстрирует:
+
+- FastAPI endpoints;
+- регистрацию пользователя через bot-like API;
+- обновление профиля респондента;
+- JSON-based segmentation;
+- компиляцию сегмента в SQLAlchemy-запрос;
+- operator API с защитой через `X-API-Key`;
+- генерацию одноразового invitation token;
+- хранение только `token_hash`;
+- создание `Invitation`;
+- создание `InvitationDeliveryJob`;
+- Redis/RQ-ready delivery architecture;
+- public invite open/submit flow;
+- защиту от повторного submit по тому же token.
+
+---
+
 ## Prerequisites
 
-Start from a clean local environment.
+Начать лучше с чистой локальной базы.
 
 ```bash
 cp .env.example .env
@@ -28,7 +51,7 @@ poetry run python -m alembic upgrade head
 poetry run python -m uvicorn app.main:app --reload
 ```
 
-The API should be available at:
+API будет доступен по адресу:
 
 ```text
 http://127.0.0.1:8000
@@ -40,27 +63,62 @@ Swagger UI:
 http://127.0.0.1:8000/docs
 ```
 
-## 1. Register a user
+Operator endpoints требуют API key:
 
-This endpoint simulates a Telegram bot registration flow.
+```text
+X-API-Key: dev-operator-key
+```
+
+---
+
+## Optional: запуск worker
+
+Для полного показа delivery flow можно открыть второй терминал и запустить worker:
+
+```bash
+poetry run rq worker invitation_delivery
+```
+
+Если worker не запускать, demo всё равно можно пройти через invite link, который возвращается в response от `send_invitations`.
+
+Разница:
+
+- без worker invitation останется в статусе `queued`;
+- с worker delivery job будет обработан, а invitation перейдёт в `sent`.
+
+---
+
+## 1. Register user
+
+Endpoint имитирует регистрацию пользователя через Telegram-бота.
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/bot/users/register" \
   -H "Content-Type: application/json" \
   -d '{
-    "telegram_id": 100001,
-    "telegram_username": "demo_user"
+    "telegram_id": 100001
   }'
 ```
 
-Expected result:
+Expected response:
 
 ```json
 {
-  "user_id": 1,
-  "is_new": true
+  "is_new": true,
+  "user_id": 1
 }
 ```
+
+Если пользователь уже существует, API вернёт:
+
+```json
+{
+  "is_new": false,
+  "user_id": 1
+}
+```
+
+---
 
 ## 2. Update user profile
 
@@ -77,7 +135,7 @@ curl -X PATCH "http://127.0.0.1:8000/bot/users/profile" \
   }'
 ```
 
-Expected result:
+Expected response:
 
 ```json
 {
@@ -85,7 +143,9 @@ Expected result:
 }
 ```
 
-## 3. Create a survey
+---
+
+## 3. Create survey
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/operator/surveys" \
@@ -97,7 +157,7 @@ curl -X POST "http://127.0.0.1:8000/operator/surveys" \
   }'
 ```
 
-Expected result:
+Expected response:
 
 ```json
 {
@@ -105,9 +165,11 @@ Expected result:
 }
 ```
 
-## 4. Create a segment
+---
 
-This segment targets users from Moscow aged 18-35.
+## 4. Create segment
+
+Сегмент выбирает пользователей из Moscow в возрасте от 18 до 35 лет.
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/operator/segments" \
@@ -125,13 +187,15 @@ curl -X POST "http://127.0.0.1:8000/operator/segments" \
   }'
 ```
 
-Expected result:
+Expected response:
 
 ```json
 {
   "segment_id": 1
 }
 ```
+
+---
 
 ## 5. Preview segment
 
@@ -140,7 +204,7 @@ curl -X GET "http://127.0.0.1:8000/operator/segments/1/preview?limit=20" \
   -H "X-API-Key: dev-operator-key"
 ```
 
-Expected result:
+Expected response:
 
 ```json
 {
@@ -149,16 +213,9 @@ Expected result:
 }
 ```
 
-If the local database is not empty, IDs may differ and the response may contain more than one matching user:
+Если база не пустая, IDs могут отличаться. Главное — в ответе должны быть пользователи, подходящие под JSON-сегмент.
 
-```json
-{
-  "segment_id": 2,
-  "user_ids": [1, 2]
-}
-```
-
-The key point is that users matching the JSON segment filter are returned.
+---
 
 ## 6. Send invitations
 
@@ -174,7 +231,7 @@ curl -X POST "http://127.0.0.1:8000/operator/surveys/1/send_invitations" \
   }'
 ```
 
-Expected result:
+Expected response:
 
 ```json
 {
@@ -193,24 +250,29 @@ Expected result:
 }
 ```
 
-Important:
+Важно:
 
-- the raw token is returned only for local demo purposes;
-- the database stores only a token hash;
-- invitation status should be `queued`;
-- a delivery job should be created for the invitation.
+- raw token возвращается только для локального demo;
+- в базе хранится только `token_hash`;
+- создаётся `Invitation`;
+- создаётся `InvitationDeliveryJob`;
+- delivery job ставится в Redis/RQ queue.
+
+В production bulk API не должен свободно возвращать raw invite links, потому что такая ссылка является bearer-secret.
+
+---
 
 ## 7. Open public invite
 
-Take the `invite_link` from the previous response.
+Возьми `invite_link` из предыдущего response.
 
-Example:
+Пример:
 
 ```bash
 curl -X GET "http://127.0.0.1:8000/s/1/<token>"
 ```
 
-Expected result:
+Expected response без запущенного worker:
 
 ```json
 {
@@ -220,14 +282,22 @@ Expected result:
 }
 ```
 
-In this MVP, the public link can be opened directly from the API response for demo purposes.
+Expected response после обработки worker-ом:
 
-The `queued` status means that the invitation has been created 
-and a delivery job has been queued, but the worker has not yet marked the invitation 
-as successfully delivered.
+```json
+{
+  "survey_id": 1,
+  "invitation_id": 1,
+  "status": "opened"
+}
+```
 
-In a production flow, a user would normally receive the link only after the delivery worker 
-sends the message through Telegram.
+Пояснение:
+
+- `queued` означает, что invitation создан и delivery job поставлена в очередь;
+- `opened` означает, что invitation был доставлен/помечен как `sent`, а потом пользователь открыл ссылку.
+
+---
 
 ## 8. Submit response
 
@@ -242,7 +312,7 @@ curl -X POST "http://127.0.0.1:8000/s/1/<token>" \
   }'
 ```
 
-Expected result:
+Expected response:
 
 ```json
 {
@@ -251,11 +321,14 @@ Expected result:
 }
 ```
 
-After successful submission:
+После successful submit:
 
-- response is stored in PostgreSQL;
-- invitation is marked as completed/used;
-- the same token cannot be submitted again.
+- response сохраняется в PostgreSQL;
+- invitation получает `used_at`;
+- invitation переходит в `completed`;
+- тот же token больше нельзя использовать для повторного submit.
+
+---
 
 ## 9. Try to submit the same token again
 
@@ -270,7 +343,7 @@ curl -X POST "http://127.0.0.1:8000/s/1/<token>" \
   }'
 ```
 
-Expected result:
+Expected response:
 
 ```json
 {
@@ -278,35 +351,35 @@ Expected result:
 }
 ```
 
-This confirms that the public invite token is single-use.
+Это подтверждает, что public invite token одноразовый.
 
-## What This Demo Shows
+---
 
-This scenario demonstrates:
+## Что сказать на собеседовании
 
-- async FastAPI endpoints;
-- user registration and profile update;
-- JSON-based segmentation;
-- segment validation and SQL compilation;
-- operator API protection with `X-API-Key`;
-- one-time invitation token flow;
-- token hashing;
-- public invite open/submit flow;
-- single-use public invite token protection;
-- separation between `Invitation` and `InvitationDeliveryJob`;
-- Redis/RQ-ready delivery architecture.
+Короткое объяснение demo:
 
-## Interview Talking Points
+> Я начинаю с пользователя, который регистрируется через bot-like API и заполняет профиль.  
+> Затем создаю survey и reusable JSON-сегмент.  
+> Segment валидируется и компилируется в SQLAlchemy-запрос.  
+> При запуске рассылки система выбирает подходящих пользователей, создаёт invitations, генерирует одноразовые tokens, сохраняет только token hashes и создаёт delivery jobs.  
+> Delivery jobs отправляются в Redis/RQ queue, а worker может обработать их отдельно от HTTP-запроса.  
+> После этого пользователь открывает public invite link и отправляет response.  
+> Повторный submit по тому же token блокируется.
 
-During an interview, this demo can be explained as:
+---
 
-> I start with a user who registers through a bot-like API. 
-> Then I create a survey and a reusable JSON segment. 
-> The segment is validated and compiled into a SQLAlchemy query. 
-> When I send invitations, the system creates tokenized invite links, 
-> stores only token hashes, revokes previous active invitations if needed 
-> and creates delivery jobs. 
-> The public endpoint then allows the user to open the invite and submit a response. 
-> Message delivery is currently represented by a stub and Redis/RQ queue infrastructure, 
-> while the production roadmap describes how I would add real Telegram delivery, retries, 
-> idempotency and observability.
+## Главное, что демонстрирует проект
+
+SurveyGate показывает не просто CRUD, а полноценный backend-flow:
+
+```text
+segmentation
+-> invitation generation
+-> secure token flow
+-> async delivery architecture
+-> public response submission
+-> single-use token protection
+```
+
+Текущая доставка через Telegram пока заменена stub-логикой, но архитектура уже разделяет бизнес-сущность `Invitation` и техническую задачу `InvitationDeliveryJob`.
