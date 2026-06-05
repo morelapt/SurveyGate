@@ -54,7 +54,7 @@ async def send_invitations(
     now = dt.datetime.now(dt.UTC)
     expires_at = now + dt.timedelta(days=ttl_days)
 
-    # фиксируем сам запуск как сущность (красиво для портфолио)
+    # фиксируем сам запуск как сущность
     send_stmt = (
         insert(SurveySend)
         .values(
@@ -131,6 +131,8 @@ async def send_invitations(
 
         link = f"/s/{survey_id}/{token}"
         text = message_template.replace("{link}", link)
+        if "{link}" not in message_template:
+            raise ValueError("message_template must contain {link}")
 
         delivery_job_id = await create_invitation_delivery_job(
             session=session,

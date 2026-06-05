@@ -94,6 +94,8 @@ async def send_invitations_endpoint(
             raise HTTPException(status_code=404, detail=msg) from e
         if msg in {"Survey is closed"}:
             raise HTTPException(status_code=400, detail=msg) from e
+        if msg in {"message_template must contain {link}"}:
+            raise HTTPException(status_code=400, detail=msg) from e
         raise
 
     return SendInvitationsOut(**result)
